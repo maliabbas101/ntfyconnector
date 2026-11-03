@@ -23,3 +23,7 @@ The bridge uses the ntfy JSON streaming endpoint. Messages are forwarded with th
 - The ntfy topic URL must be kept private. Public topics may be writable by others; an authenticated source token alone does not authenticate the signal publisher.
 - A production bridge still needs topic access control, backpressure, explicit handling of permanent API failures, retention-gap detection, monitored delivery, and multi-instance cursor coordination. Run only one bridge per topic and cursor database.
 - No MT5 execution is implemented.
+
+## Delivery failures
+
+HTTP 401, 403, 404, and 422 from ingestion stop the bridge without acknowledging the failed event. Correct the source configuration or payload issue before restarting. Transient HTTP failures (including 429 and 5xx) cause retry after reconnection. The cursor advances only on successful ingestion responses. Repeated permanent failures require operator attention.
