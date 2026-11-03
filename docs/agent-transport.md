@@ -1,5 +1,7 @@
-# Agent outbound transport scaffold
+# Agent outbound HTTPS polling
 
-`poll_once` makes one outbound HTTPS request to a configured agent command endpoint. It requires a bearer token, refuses HTTP and credential-bearing URLs, refuses redirects, and accepts only a signed command envelope or HTTP 204 (no command). Signature verification and the fail-closed command processor run before any terminal interaction. It never sends broker orders.
+`poll_once` fetches a signed command over HTTPS and validates its signature and expiry before touching MT5 or the local journal. A command that reaches a durable terminal journal state (`REJECTED` or `RECONCILED`) is acknowledged to the cloud via POST `/v1/agent/commands/{command_id}/ack`. Invalid signatures are not acknowledged. Missing acknowledgments raise errors; the command journal prevents accidental duplicate execution.
 
-**Not yet a working cloud channel:** the server endpoint, enrollment/token issuance, per-agent identity binding, acknowledgment delivery, TLS pinning policy, polling loop, operational telemetry, and recovery strategy are not implemented. Use an HTTPS endpoint with trusted certificate validation and avoid logging credentials. Do not enable real trading.
+An acknowledgment confirms only local processing, **not a successful broker trade**. The command processor still rejects every command before order submission. Commands in uncertain states are not acknowledged automatically.
+
+This is still a single-agent development scaffold. It requires proper enrollment, per-agent identity, tenant isolation, TLS deployment, credential rotation, recovery/reconciliation, and real Windows demo-terminal integration tests before use in a production service.
