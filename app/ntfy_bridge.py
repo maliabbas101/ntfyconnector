@@ -11,6 +11,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from pydantic import BaseModel, Field
 from app.ntfy_cursor import CursorStore
+from app.ntfy_delivery import forward_event, PermanentDeliveryError
 
 log = logging.getLogger(__name__)
 
@@ -64,11 +65,11 @@ def run_bridge() -> None:
                             payload = normalize_ntfy_line(line, topic)
                             if payload is None:
                                 continue
-                            result = client.post(destination, json=payload,
-                                                 headers={"Authorization": f"Bearer {token}"})
-                            result.raise_for_status()
-                            cursor.acknowledge(payload["external_id"])
+                            forward_event(client, destination, token, payload, cursor)
                             log.info("Acknowledged ntfy event id=%s", payload["external_id"])
+                except PermanentDeliveryError:
+                    log.error("Permanent ingestion failure; stopping bridge without acknowledging event")
+                    raise
                 except (httpx.HTTPError, OSError) as exc:
                     log.warning("Bridge connection error: %s; retrying", type(exc).__name__)
                     time.sleep(5)
