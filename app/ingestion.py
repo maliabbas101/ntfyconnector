@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from uuid import uuid4
 from sqlalchemy import create_engine, String, DateTime, ForeignKey, UniqueConstraint, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
@@ -75,11 +76,22 @@ def ingest(source_id: str, body: IncomingEvent, authorization: str | None = Head
     db.add(event)
     try:
         db.commit()
-    except Exception as exc:
+    except IntegrityError:
         db.rollback()
-        # A concurrent request may have inserted the same external ID.
-        existing = db.scalar(select(RawEvent).where(RawEvent.source_id == source.id, RawEvent.external_id == body.external_id))
-        if existing:
-            return {"event_id": existing.id, "status": existing.status, "duplicate": True, "execution_enabled": False}
+        # Only treat a genuine source/external-id conflict as a duplicate.
+        # Other constraint failures must surface rather than be masked.
+        existing = db.scalar(
+            select(RawEvent).where(
+                RawEvent.source_id == source.id,
+                RawEvent.external_id == body.external_id,
+            )
+        )
+        if existing is not None:
+            return {
+                "event_id": existing.id,
+                "status": existing.status,
+                "duplicate": True,
+                "execution_enabled": False,
+            }
         raise
     return {"event_id": event.id, "status": event.status, "duplicate": False, "execution_enabled": False}
