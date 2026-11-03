@@ -3,7 +3,7 @@
 Uses broker-provided monetary loss per one lot for the specific entry/SL.
 Never derive pip value from symbol names.
 """
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN
 from pydantic import BaseModel, Field, model_validator
 from app.parser import Signal
 
