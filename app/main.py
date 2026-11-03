@@ -22,3 +22,6 @@ def validate_signal(body: ParseRequest):
 
 from app.ingestion import router as ingestion_router
 app.include_router(ingestion_router)
+
+from app.agent_api import router as agent_router
+app.include_router(agent_router)
