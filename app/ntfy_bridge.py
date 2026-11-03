@@ -10,6 +10,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from pydantic import BaseModel, Field
+from app.ntfy_cursor import CursorStore
 
 log = logging.getLogger(__name__)
 
@@ -50,23 +51,27 @@ def run_bridge() -> None:
         raise ValueError("Invalid bridge configuration")
     subscribe = f"{ntfy_url}/{quote(topic, safe='')}/json"
     destination = f"{api_url}/v1/ingest/sources/{quote(source_id, safe='')}"
-    # Do not log tokens or notification message contents.
-    with httpx.Client(timeout=httpx.Timeout(30.0, read=90.0), follow_redirects=False) as client:
-        while True:
-            try:
-                with client.stream("GET", subscribe, params={"poll": "0"}) as response:
-                    response.raise_for_status()
-                    for line in response.iter_lines():
-                        payload = normalize_ntfy_line(line, topic)
-                        if payload is None:
-                            continue
-                        result = client.post(destination, json=payload,
-                                             headers={"Authorization": f"Bearer {token}"})
-                        result.raise_for_status()
-                        log.info("Forwarded ntfy event id=%s", payload["external_id"])
-            except (httpx.HTTPError, OSError) as exc:
-                log.warning("Bridge connection error: %s; retrying", type(exc).__name__)
-                time.sleep(5)
+    # The cursor advances only after a successful API response. Replayed events
+    # are harmless because ingestion deduplicates by source and external ID.
+    with CursorStore(os.getenv("NTFY_CURSOR_DB", "./ntfy-bridge-cursor.sqlite"), topic) as cursor:
+        with httpx.Client(timeout=httpx.Timeout(30.0, read=90.0), follow_redirects=False) as client:
+            while True:
+                try:
+                    since = cursor.get() or "all"
+                    with client.stream("GET", subscribe, params={"since": since}) as response:
+                        response.raise_for_status()
+                        for line in response.iter_lines():
+                            payload = normalize_ntfy_line(line, topic)
+                            if payload is None:
+                                continue
+                            result = client.post(destination, json=payload,
+                                                 headers={"Authorization": f"Bearer {token}"})
+                            result.raise_for_status()
+                            cursor.acknowledge(payload["external_id"])
+                            log.info("Acknowledged ntfy event id=%s", payload["external_id"])
+                except (httpx.HTTPError, OSError) as exc:
+                    log.warning("Bridge connection error: %s; retrying", type(exc).__name__)
+                    time.sleep(5)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
