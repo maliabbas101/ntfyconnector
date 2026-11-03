@@ -27,3 +27,7 @@ The bridge uses the ntfy JSON streaming endpoint. Messages are forwarded with th
 ## Delivery failures
 
 HTTP 401, 403, 404, and 422 from ingestion stop the bridge without acknowledging the failed event. Correct the source configuration or payload issue before restarting. Transient HTTP failures (including 429 and 5xx) cause retry after reconnection. The cursor advances only on successful ingestion responses. Repeated permanent failures require operator attention.
+
+## Private ntfy topics
+
+Set `NTFY_ACCESS_TOKEN` to a bearer token authorized to read the configured topic. The bridge sends it to the configured `NTFY_URL` on the subscription request; HTTP redirects are disabled. Do not reuse `SOURCE_TOKEN` as the ntfy access token. Restrict topic publishing separately on the ntfy server, and keep both credentials in a secret manager. Without `NTFY_ACCESS_TOKEN`, the bridge uses an unauthenticated subscription, suitable only for explicitly public topics.
