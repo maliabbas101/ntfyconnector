@@ -5,3 +5,5 @@ The ingestion API acknowledges a signal only after committing its raw event. Rep
 The ntfy bridge persists its last acknowledged notification ID. Temporary HTTP failures retry without advancing the cursor, while permanent authentication or validation errors stop the bridge.
 
 **Remaining gaps:** The ntfy server's retention period can expire during an outage. There is no dead-letter queue, durable delivery metrics, automatic operator alerting, or PostgreSQL end-to-end integration test yet. The PostgreSQL RLS migration requires a properly designed source-authentication role and tenant transaction wiring before deployment. This system must not execute live trades.
+
+The bridge now requires an HTTP 202 response with a nonempty event ID, recognized validation status, and an explicit `execution_enabled: false` receipt before advancing the cursor. An unexpected 2xx or malformed receipt stops delivery for investigation. HTTP 400 and 413 are also treated as permanent errors.
