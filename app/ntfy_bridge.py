@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.ntfy_cursor import CursorStore
 from app.ntfy_delivery import forward_event, PermanentDeliveryError
 from app.ntfy_auth import subscription_headers
+from app.ntfy_subscription import validate_subscription_response, PermanentSubscriptionError
 
 log = logging.getLogger(__name__)
 
@@ -62,15 +63,15 @@ def run_bridge() -> None:
                     since = cursor.get() or "all"
                     with client.stream("GET", subscribe, params={"since": since},
                                        headers=subscription_headers()) as response:
-                        response.raise_for_status()
+                        validate_subscription_response(response)
                         for line in response.iter_lines():
                             payload = normalize_ntfy_line(line, topic)
                             if payload is None:
                                 continue
                             forward_event(client, destination, token, payload, cursor)
                             log.info("Acknowledged ntfy event id=%s", payload["external_id"])
-                except PermanentDeliveryError:
-                    log.error("Permanent ingestion failure; stopping bridge without acknowledging event")
+                except (PermanentDeliveryError, PermanentSubscriptionError):
+                    log.error("Permanent bridge failure; stopping without advancing the cursor")
                     raise
                 except (httpx.HTTPError, OSError) as exc:
                     log.warning("Bridge connection error: %s; retrying", type(exc).__name__)
