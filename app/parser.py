@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, model_validator
 
-NUMBER = r"(\\d+(?:\\.\\d+)?)"
+NUMBER = r"(\d+(?:\.\d+)?)"
 
 class Signal(BaseModel):
     symbol: str
@@ -26,13 +26,13 @@ class Signal(BaseModel):
 def parse_signal(text: str) -> Signal:
     if len(text) > 8192:
         raise ValueError("Message too long")
-    header = re.search(r"\\b(BUY|SELL)\\s+(XAUUSD)\\s+CMP\\s*:?\\s*" + NUMBER + r"\\b", text, re.I)
-    sl = re.search(r"\\bSL\\s*:\\s*" + NUMBER + r"\\b", text, re.I)
-    tp1 = re.search(r"\\bTP[-\\s]*1\\s*:\\s*" + NUMBER + r"\\b", text, re.I)
-    tp2 = re.search(r"\\bTP[-\\s]*2\\s*:\\s*" + NUMBER + r"\\b", text, re.I)
+    header = re.search(r"\b(BUY|SELL)\s+(XAUUSD)\s+CMP\s*:?\s*" + NUMBER + r"\b", text, re.I)
+    sl = re.search(r"\bSL\s*:\s*" + NUMBER + r"\b", text, re.I)
+    tp1 = re.search(r"\bTP[-\s]*1\s*:\s*" + NUMBER + r"\b", text, re.I)
+    tp2 = re.search(r"\bTP[-\s]*2\s*:\s*" + NUMBER + r"\b", text, re.I)
     if not all((header, sl, tp1, tp2)):
         raise ValueError("Missing or unsupported signal fields")
-    if len(re.findall(r"\\b(?:BUY|SELL)\\s+XAUUSD\\s+CMP\\b", text, re.I)) != 1:
+    if len(re.findall(r"\b(?:BUY|SELL)\s+XAUUSD\s+CMP\b", text, re.I)) != 1:
         raise ValueError("Ambiguous multiple signals")
     return Signal(
         side=header.group(1).upper(), symbol=header.group(2).upper(),
