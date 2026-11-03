@@ -31,3 +31,7 @@ HTTP 401, 403, 404, and 422 from ingestion stop the bridge without acknowledging
 ## Private ntfy topics
 
 Set `NTFY_ACCESS_TOKEN` to a bearer token authorized to read the configured topic. The bridge sends it to the configured `NTFY_URL` on the subscription request; HTTP redirects are disabled. Do not reuse `SOURCE_TOKEN` as the ntfy access token. Restrict topic publishing separately on the ntfy server, and keep both credentials in a secret manager. Without `NTFY_ACCESS_TOKEN`, the bridge uses an unauthenticated subscription, suitable only for explicitly public topics.
+
+## Subscription failures
+
+The bridge stops on ntfy subscription HTTP 400, 401, 403, 404, 410, or 422 and on unexpected 2xx responses. Fix topic permissions, topic names, or access tokens before restarting. HTTP 429 and 5xx responses are retried after a delay without advancing the event cursor. Operational alerting and exponential backoff remain future work.
