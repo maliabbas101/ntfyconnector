@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.agent_journal import CommandJournal
 from app.mt5_guard import AccountVerificationError, verify_demo_account
 from app.parser import Signal
-from app.risk import BrokerSnapshot, RiskPolicy, assess_demo_trade
+from app.risk import BrokerSnapshot, RiskPolicy
 
 class DemoCommand(BaseModel):
     command_id: str
@@ -39,7 +39,7 @@ def process_demo_command(command: DemoCommand, journal: CommandJournal, mt5) -> 
         return {"command_id": command.command_id, "state": "REJECTED",
                 "reason": "EXPIRED", "execution_enabled": False}
     try:
-        account = verify_demo_account(
+        verify_demo_account(
             mt5, expected_login=command.expected_login,
             expected_server=command.expected_server,
         )
