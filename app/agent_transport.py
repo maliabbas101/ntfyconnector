@@ -40,6 +40,18 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         raise RuntimeError("Unexpected command response")
     envelope = SignedEnvelope.model_validate(response.json())
     result = process_signed_demo_command(envelope, signing_secret, journal, mt5)
-    # Acknowledgement delivery is deliberately separate; losing a response must
-    # not cause command re-execution. The durable journal handles duplicates.
-    return {"status": "PROCESSED", "result": result, "execution_enabled": False}
+    # Acknowledge only after a durable, terminal journal state. This is a
+    # delivery receipt, never a claim that a broker order was placed.
+    if result["state"] not in ("REJECTED", "RECONCILED"):
+        return {"status": "UNACKNOWLEDGED", "result": result,
+                "execution_enabled": False}
+    ack = client.post(
+        base + "/v1/agent/commands/" + envelope.command_id + "/ack",
+        headers={"Authorization": "Bearer " + agent_token},
+        timeout=15.0,
+        follow_redirects=False,
+    )
+    ack.raise_for_status()
+    if ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED":
+        raise RuntimeError("Invalid agent acknowledgment response")
+    return {"status": "ACKNOWLEDGED", "result": result, "execution_enabled": False}
