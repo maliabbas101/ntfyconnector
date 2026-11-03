@@ -19,3 +19,6 @@ def validate_signal(body: ParseRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "DRY_RUN", "execution_enabled": False, "signal": signal.model_dump(mode="json")}
+
+from app.ingestion import router as ingestion_router
+app.include_router(ingestion_router)
