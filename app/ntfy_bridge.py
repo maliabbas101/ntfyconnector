@@ -12,6 +12,7 @@ import httpx
 from pydantic import BaseModel, Field
 from app.ntfy_cursor import CursorStore
 from app.ntfy_delivery import forward_event, PermanentDeliveryError
+from app.ntfy_auth import subscription_headers
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ def run_bridge() -> None:
             while True:
                 try:
                     since = cursor.get() or "all"
-                    with client.stream("GET", subscribe, params={"since": since}) as response:
+                    with client.stream("GET", subscribe, params={"since": since},
+                                       headers=subscription_headers()) as response:
                         response.raise_for_status()
                         for line in response.iter_lines():
                             payload = normalize_ntfy_line(line, topic)
