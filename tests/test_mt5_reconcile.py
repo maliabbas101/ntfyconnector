@@ -5,7 +5,8 @@ from uuid import uuid4
 import pytest
 
 from app.agent_journal import CommandJournal
-from app.mt5_reconcile import ReconciliationUnavailable, inspect_uncertain_demo_order
+from app.mt5_reconcile import (ReconciliationUnavailable, inspect_uncertain_demo_order,
+                               confirm_demo_deal)
 
 
 class FakeDemo:
@@ -93,4 +94,40 @@ def test_unavailable_history_keeps_uncertain_state(tmp_path):
             inspect_uncertain_demo_order(
                 FakeDemo(history=None), journal, cid,
                 expected_login=123, expected_server="Demo")
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
+
+
+def test_confirmed_matching_deal_reconciles_only_after_operator_action(tmp_path):
+    cid = str(uuid4())
+    comment = "ntfy-" + cid.replace("-", "")[:24]
+    mt5 = FakeDemo(history=[
+        SimpleNamespace(ticket=9876, order=8888,
+                        symbol="XAUUSD", comment=comment)])
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        kwargs = dict(mt5=mt5, journal=journal, command_id=cid,
+                      expected_login=123, expected_server="Demo",
+                      deal_ticket=9876)
+        with pytest.raises(ReconciliationUnavailable, match="operator"):
+            confirm_demo_deal(**kwargs)
+        with pytest.raises(ReconciliationUnavailable, match="ticket"):
+            confirm_demo_deal(**dict(kwargs, deal_ticket=1234),
+                              operator_confirmed=True)
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
+        result = confirm_demo_deal(**kwargs, operator_confirmed=True)
+        assert result["state"] == "RECONCILED"
+        assert journal.get(cid)["state"] == "RECONCILED"
+        with pytest.raises(ReconciliationUnavailable):
+            confirm_demo_deal(**kwargs, operator_confirmed=True)
+
+
+def test_confirm_demo_deal_never_accepts_unmatched_or_missing_history(tmp_path):
+    cid = str(uuid4())
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        with pytest.raises(ReconciliationUnavailable):
+            confirm_demo_deal(
+                FakeDemo(history=[]), journal, cid, deal_ticket=111,
+                expected_login=123, expected_server="Demo",
+                operator_confirmed=True)
         assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
