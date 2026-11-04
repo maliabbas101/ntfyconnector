@@ -114,3 +114,39 @@ def test_server_signed_submission_requires_enrollment_and_valid_signal(
                        json=dict(good, text="garbage")).status_code == 422
     with CommandQueue(path) as queue:
         assert queue.next_for_agent(agent) is None
+
+
+def test_tenant_overview_endpoint_is_auth_scoped_and_excludes_envelopes(
+    monkeypatch, tmp_path
+):
+    tenant, other_tenant = str(uuid4()), str(uuid4())
+    agent, other_agent = str(uuid4()), str(uuid4())
+    queue_path = str(tmp_path / "queue.sqlite")
+    monkeypatch.setenv("DEMO_COMMAND_TENANT_ID", tenant)
+    monkeypatch.setenv("DEMO_COMMAND_SUBMIT_TOKEN_SHA256",
+                       hashlib.sha256(b"submit-secret").hexdigest())
+    monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
+    with CommandQueue(queue_path) as queue:
+        queue.enroll_agent(agent, tenant)
+        queue.enroll_agent(other_agent, other_tenant)
+        expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        queue.enqueue(agent, {
+            "command_id": str(uuid4()), "expires_at": expiry,
+            "payload": {"secret": "never-return-this"},
+            "signature": "a" * 64})
+        queue.enqueue(other_agent, {
+            "command_id": str(uuid4()), "expires_at": expiry,
+            "payload": {"secret": "other-tenant-secret"},
+            "signature": "b" * 64})
+    client = TestClient(app)
+    url = "/v1/dev/tenants/overview"
+    assert client.get(url).status_code == 401
+    res = client.get(url, headers={"Authorization": "Bearer submit-secret"})
+    assert res.status_code == 200
+    result = res.json()
+    assert result["agents_enrolled"] == 1
+    assert result["status_counts"]["PENDING"] == 1
+    assert len(result["recent"]) == 1
+    assert result["execution_enabled"] is False
+    assert "never-return-this" not in res.text
+    assert "other-tenant-secret" not in res.text
