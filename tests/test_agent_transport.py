@@ -13,7 +13,10 @@ def test_https_endpoint_validation():
     assert validate_agent_endpoint("https://agent.example.com/") == "https://agent.example.com"
     for url in ("http://agent.example.com", "https://user:pass@agent.example.com",
                 "https://agent.example.com:8443", "https://agent.example.com?token=x",
-                "https://agent.example.com/#fragment"):
+                "https://agent.example.com/#fragment",
+                "https://agent.example.com:invalid",
+                "https://agent.example.com:99999",
+                "https://[broken"):
         with pytest.raises(TransportConfigurationError):
             validate_agent_endpoint(url)
 
