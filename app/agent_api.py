@@ -42,6 +42,19 @@ def next_command(response: Response, authorization: str | None = Header(default=
         return None
     return envelope
 
+@router.get("/commands/{command_id}/receipt")
+def command_receipt(command_id: str, authorization: str | None = Header(default=None)):
+    """Read-only reconciliation aid; does not redeliver uncertain commands."""
+    agent_id = authenticate_agent(authorization)
+    try:
+        with open_queue() as queue:
+            receipt = queue.delivery_receipt(agent_id, command_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Command not found") from None
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Command not found")
+    return receipt
+
 @router.post("/commands/{command_id}/ack")
 def acknowledge_command(command_id: str, authorization: str | None = Header(default=None)):
     agent_id = authenticate_agent(authorization)
