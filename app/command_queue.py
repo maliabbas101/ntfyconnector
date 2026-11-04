@@ -128,6 +128,65 @@ class CommandQueue:
             self.db.rollback()
             raise
 
+    def report_journal_state(self, agent_id: str, command_id: str,
+                             journal_state: str) -> bool:
+        """Store an authenticated claim, not proof of broker execution."""
+        command_id = str(UUID(command_id))
+        allowed = {"RECEIVED", "REJECTED", "EXECUTION_UNKNOWN", "RECONCILED"}
+        if journal_state not in allowed:
+            raise ValueError("Invalid journal state")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT status FROM agent_commands WHERE agent_id=? AND command_id=?",
+                (agent_id, command_id)).fetchone()
+            if row is None or row[0] not in ("DELIVERED", "ACKNOWLEDGED"):
+                self.db.commit()
+                return False
+            self.db.execute("""CREATE TABLE IF NOT EXISTS agent_command_reports (
+                command_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
+                journal_state TEXT NOT NULL, reported_at TEXT NOT NULL
+            )""")
+            old_row = self.db.execute(
+                "SELECT journal_state FROM agent_command_reports WHERE command_id=?",
+                (command_id,)).fetchone()
+            old = old_row[0] if old_row else None
+            if old == journal_state:
+                self.db.commit()
+                return True
+            transitions = {
+                None: allowed,
+                "RECEIVED": {"REJECTED", "EXECUTION_UNKNOWN"},
+                "EXECUTION_UNKNOWN": {"RECONCILED"},
+                "REJECTED": set(),
+                "RECONCILED": set(),
+            }
+            if journal_state not in transitions[old]:
+                raise QueueConflict("Invalid or conflicting journal transition")
+            self.db.execute(
+                "INSERT INTO agent_command_reports "
+                "(command_id,agent_id,journal_state,reported_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(command_id) DO UPDATE SET "
+                "journal_state=excluded.journal_state,reported_at=excluded.reported_at",
+                (command_id, agent_id, journal_state,
+                 datetime.now(timezone.utc).isoformat()))
+            self.db.commit()
+            return True
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def reported_state(self, agent_id: str, command_id: str) -> str | None:
+        self.db.execute("""CREATE TABLE IF NOT EXISTS agent_command_reports (
+            command_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
+            journal_state TEXT NOT NULL, reported_at TEXT NOT NULL
+        )""")
+        row = self.db.execute(
+            "SELECT journal_state FROM agent_command_reports "
+            "WHERE agent_id=? AND command_id=?",
+            (agent_id, str(UUID(command_id)))).fetchone()
+        return row[0] if row else None
+
     def status(self, command_id: str) -> str | None:
         row = self.db.execute("SELECT status FROM agent_commands WHERE command_id=?",
                               (str(UUID(command_id)),)).fetchone()
