@@ -5,7 +5,8 @@ No MT5 orders are placed. Caller owns enrollment and secret provisioning.
 from urllib.parse import urlsplit
 import httpx
 from app.agent_auth import SignedEnvelope
-from app.signed_agent_processor import process_signed_demo_command
+from app.agent_identity import AgentIdentity, verify_bound_command
+from app.agent_processor import process_demo_command
 
 class TransportConfigurationError(ValueError):
     pass
@@ -19,7 +20,8 @@ def validate_agent_endpoint(url: str) -> str:
     return url.rstrip("/")
 
 def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
-              journal, mt5, client: httpx.Client) -> dict:
+              journal, mt5, client: httpx.Client,
+              identity: AgentIdentity | None = None) -> dict:
     """Fetch one signed command; no auto-retry and no broker execution.
 
     Token must be provisioned out of band; never log token or signed payload.
@@ -38,8 +40,11 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
     response.raise_for_status()
     if response.status_code != 200:
         raise RuntimeError("Unexpected command response")
+    if identity is None:
+        raise TransportConfigurationError("Pinned agent identity required for commands")
     envelope = SignedEnvelope.model_validate(response.json())
-    result = process_signed_demo_command(envelope, signing_secret, journal, mt5)
+    command = verify_bound_command(envelope, signing_secret, identity)
+    result = process_demo_command(command, journal, mt5)
     # Report the durable journal outcome before acknowledging delivery.
     report = client.post(
         base + "/v1/agent/commands/" + envelope.command_id + "/journal-state",
