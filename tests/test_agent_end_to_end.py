@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.agent_api import router
 from app.agent_auth import sign_command
 from app.agent_journal import CommandJournal
-from app.agent_transport import poll_once
+from app.agent_transport import poll_once, recover_terminal_receipt
 from app.command_queue import CommandQueue
 
 KEY = b"k" * 32
@@ -112,6 +112,47 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
                     identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"),
                 )["status"] == "EMPTY"
 
+    with CommandQueue(queue_path) as queue:
+        assert queue.status(command_id) == "ACKNOWLEDGED"
+        assert queue.reported_state(AGENT_ID, command_id) == "REJECTED"
+
+
+def test_recovery_resumes_terminal_report_without_reexecuting(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "cloud.sqlite")
+    monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
+    monkeypatch.setenv("DEMO_AGENT_ID", AGENT_ID)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"token").hexdigest())
+    command_id = str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    envelope = {"command_id": command_id, "expires_at": expiry,
+                "payload": {}, "signature": "a" * 64}
+    with CommandQueue(queue_path) as queue:
+        queue.enqueue(AGENT_ID, envelope)
+        queue.next_for_agent(AGENT_ID)
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as server:
+        def handler(request):
+            response = server.request(
+                request.method, request.url.path,
+                headers=dict(request.headers), content=request.content,
+                follow_redirects=False)
+            return httpx.Response(response.status_code,
+                                  headers=dict(response.headers),
+                                  content=response.content)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+                journal.receive(command_id, {"test": True})
+                assert recover_terminal_receipt(
+                    endpoint="https://agent.example.com", agent_token="token",
+                    journal=journal, command_id=command_id, client=client
+                )["status"] == "MANUAL_RECONCILIATION_REQUIRED"
+                journal.reject(command_id, "PREFLIGHT_FAILED")
+                for _ in range(2):
+                    assert recover_terminal_receipt(
+                        endpoint="https://agent.example.com", agent_token="token",
+                        journal=journal, command_id=command_id, client=client
+                    )["status"] == "ACKNOWLEDGED"
     with CommandQueue(queue_path) as queue:
         assert queue.status(command_id) == "ACKNOWLEDGED"
         assert queue.reported_state(AGENT_ID, command_id) == "REJECTED"
