@@ -40,7 +40,7 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         raise RuntimeError("Unexpected command response")
     envelope = SignedEnvelope.model_validate(response.json())
     result = process_signed_demo_command(envelope, signing_secret, journal, mt5)
-    # Acknowledge only after a durable, terminal journal state. This is a
+    # Report the durable journal outcome before acknowledging delivery.\n    report = client.post(\n        base + "/v1/agent/commands/" + envelope.command_id + "/journal-state",\n        headers={"Authorization": "Bearer " + agent_token},\n        json={"state": result["state"]},\n        timeout=15.0,\n        follow_redirects=False,\n    )\n    report.raise_for_status()\n    if report.status_code != 200 or report.json().get("status") != "RECORDED":\n        raise RuntimeError("Invalid journal status report response")\n    # Acknowledge only after a durable, terminal journal state. This is a
     # delivery receipt, never a claim that a broker order was placed.
     if result["state"] not in ("REJECTED", "RECONCILED"):
         return {"status": "UNACKNOWLEDGED", "result": result,
