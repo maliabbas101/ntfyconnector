@@ -77,3 +77,51 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
     if ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED":
         raise RuntimeError("Invalid agent acknowledgment response")
     return {"status": "ACKNOWLEDGED", "result": result, "execution_enabled": False}
+
+
+def recover_terminal_receipt(*, endpoint: str, agent_token: str,
+                             journal, command_id: str, client: httpx.Client) -> dict:
+    """Resume reporting a durable terminal outcome without replaying a command.
+
+    This operation never fetches a command envelope or contacts MT5. A locally
+    unknown, received, or execution-uncertain command cannot be acknowledged.
+    """
+    from uuid import UUID
+
+    base = validate_agent_endpoint(endpoint)
+    if not agent_token or not agent_token.strip():
+        raise TransportConfigurationError("Agent token required")
+    command_id = str(UUID(command_id))
+    local = journal.get(command_id)
+    if local is None or local["state"] not in ("REJECTED", "RECONCILED"):
+        return {"status": "MANUAL_RECONCILIATION_REQUIRED",
+                "execution_enabled": False}
+    headers = {"Authorization": "Bearer " + agent_token}
+    receipt = client.get(
+        base + "/v1/agent/commands/" + command_id + "/receipt",
+        headers=headers, timeout=15.0, follow_redirects=False)
+    receipt.raise_for_status()
+    if receipt.status_code != 200:
+        raise RuntimeError("Unexpected recovery receipt response")
+    cloud = receipt.json()
+    if cloud.get("status") == "ACKNOWLEDGED":
+        if cloud.get("journal_state") != local["state"]:
+            raise RuntimeError("Cloud receipt conflicts with local journal")
+        return {"status": "ACKNOWLEDGED", "execution_enabled": False}
+    if cloud.get("status") != "DELIVERED":
+        return {"status": "MANUAL_RECONCILIATION_REQUIRED",
+                "execution_enabled": False}
+    report = client.post(
+        base + "/v1/agent/commands/" + command_id + "/journal-state",
+        headers=headers, json={"state": local["state"]},
+        timeout=15.0, follow_redirects=False)
+    report.raise_for_status()
+    if report.status_code != 200 or report.json().get("status") != "RECORDED":
+        raise RuntimeError("Invalid recovery journal report response")
+    ack = client.post(
+        base + "/v1/agent/commands/" + command_id + "/ack",
+        headers=headers, timeout=15.0, follow_redirects=False)
+    ack.raise_for_status()
+    if ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED":
+        raise RuntimeError("Invalid recovery acknowledgment response")
+    return {"status": "ACKNOWLEDGED", "execution_enabled": False}
