@@ -4,7 +4,7 @@ SQLite implementation for local development; no automatic trade creation.
 """
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -84,6 +84,27 @@ class CommandQueue:
         except BaseException:
             self.db.rollback()
             raise
+
+    def recover_unacknowledged(self, agent_id: str, *, now: datetime | None = None,
+                               min_age_seconds: int = 60) -> list[str]:
+        """List uncertain deliveries for manual reconciliation; never requeue.
+
+        A lost GET response is indistinguishable from a command received by an
+        agent that later lost its ACK. Neither case permits blind redelivery.
+        """
+        if min_age_seconds < 1:
+            raise ValueError("min_age_seconds must be positive")
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("Timezone-aware time required")
+        cutoff = (current.astimezone(timezone.utc)
+                  - timedelta(seconds=min_age_seconds)).isoformat()
+        rows = self.db.execute(
+            "SELECT command_id FROM agent_commands "
+            "WHERE agent_id=? AND status='DELIVERED' AND delivered_at<=? "
+            "ORDER BY delivered_at,command_id",
+            (agent_id, cutoff)).fetchall()
+        return [row[0] for row in rows]
 
     def acknowledge(self, agent_id: str, command_id: str) -> bool:
         command_id = str(UUID(command_id))
