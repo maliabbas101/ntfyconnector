@@ -90,7 +90,6 @@ def test_explicitly_armed_poll_only_sends_once_and_requires_reconciliation(
     monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
     envelope = build_envelope(agent, tenant)
     with CommandQueue(queue_path) as queue:
-        queue.enqueue_bound if False else None  # keep legacy fixture routing explicit
         queue.enqueue(agent, envelope)
 
     app = FastAPI()
