@@ -78,3 +78,15 @@ def test_recovery_rejects_receipt_without_disabled_execution_flag(tmp_path):
                     agent_token="agent-token", journal=journal,
                     command_id=command_id, client=client)
     assert calls == ["GET"]
+
+
+def test_recovery_invalid_command_id_never_contacts_server(tmp_path):
+    def handler(request):
+        raise AssertionError("Invalid command ID must fail before HTTP")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "journal.db")) as journal:
+            with pytest.raises(ValueError):
+                recover_terminal_receipt(
+                    endpoint="https://agent.example.com",
+                    agent_token="agent-token", journal=journal,
+                    command_id="not-a-uuid", client=client)
