@@ -296,6 +296,36 @@ class CommandQueue:
         return {"status": row[0], "journal_state": row[1],
                 "execution_enabled": False}
 
+    def tenant_overview(self, tenant_id: str) -> dict:
+        """Read-only development summary; never expose command payloads."""
+        tenant_id = str(UUID(tenant_id))
+        rows = self.db.execute(
+            "SELECT c.command_id,c.status,c.delivered_at,r.journal_state "
+            "FROM agent_commands c "
+            "JOIN agent_enrollments e ON e.agent_id=c.agent_id "
+            "LEFT JOIN agent_command_reports r ON r.command_id=c.command_id "
+            "AND r.agent_id=c.agent_id "
+            "WHERE e.tenant_id=? "
+            "ORDER BY c.rowid DESC LIMIT 25", (tenant_id,)).fetchall()
+        counts = {name: 0 for name in (
+            "PENDING", "DELIVERED", "ACKNOWLEDGED", "EXPIRED")}
+        for status, number in self.db.execute(
+            "SELECT c.status,COUNT(*) FROM agent_commands c "
+            "JOIN agent_enrollments e ON e.agent_id=c.agent_id "
+            "WHERE e.tenant_id=? GROUP BY c.status", (tenant_id,)).fetchall():
+            counts[status] = number
+        enrolled = self.db.execute(
+            "SELECT COUNT(*) FROM agent_enrollments WHERE tenant_id=?",
+            (tenant_id,)).fetchone()[0]
+        return {
+            "agents_enrolled": enrolled, "status_counts": counts,
+            "recent": [
+                {"command_id": cid, "status": status,
+                 "delivered_at": delivered_at, "journal_state": state}
+                for cid, status, delivered_at, state in rows],
+            "execution_enabled": False,
+        }
+
     def status(self, command_id: str) -> str | None:
         row = self.db.execute("SELECT status FROM agent_commands WHERE command_id=?",
                               (str(UUID(command_id)),)).fetchone()
