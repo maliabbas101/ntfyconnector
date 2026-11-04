@@ -4,6 +4,9 @@ import hmac
 import os
 from contextlib import contextmanager
 from fastapi import APIRouter, Header, HTTPException, Response
+from pydantic import BaseModel
+from typing import Literal
+from app.command_queue import QueueConflict
 from app.command_queue import CommandQueue
 
 router = APIRouter(prefix="/v1/agent", tags=["agent"])
@@ -50,3 +53,19 @@ def acknowledge_command(command_id: str, authorization: str | None = Header(defa
     if not acknowledged:
         raise HTTPException(status_code=404, detail="Command not found")
     return {"status": "ACKNOWLEDGED", "execution_enabled": False}
+
+class JournalStateReport(BaseModel):
+    state: Literal["RECEIVED", "REJECTED", "EXECUTION_UNKNOWN", "RECONCILED"]
+
+@router.post("/commands/{command_id}/journal-state")
+def report_journal_state(command_id: str, body: JournalStateReport,
+                         authorization: str | None = Header(default=None)):
+    agent_id = authenticate_agent(authorization)
+    try:
+        with open_queue() as queue:
+            recorded = queue.report_journal_state(agent_id, command_id, body.state)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Invalid journal report") from None
+    if not recorded:
+        raise HTTPException(status_code=404, detail="Command not found")
+    return {"status": "RECORDED", "execution_enabled": False}
