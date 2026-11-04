@@ -62,3 +62,20 @@ def test_other_agent_cannot_report_or_acknowledge(tmp_path):
         assert not queue.acknowledge_reported("agent-b", command_id)
         assert queue.reported_state("agent-a", command_id) is None
         assert queue.status(command_id) == "DELIVERED"
+
+
+def test_legacy_ack_without_terminal_report_is_not_agent_ack(tmp_path):
+    command_id = str(uuid4())
+    item = {
+        "command_id": command_id,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "payload": {}, "signature": "a" * 64,
+    }
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enqueue("agent-a", item)
+        queue.next_for_agent("agent-a")
+        assert queue.acknowledge("agent-a", command_id)
+        assert queue.status(command_id) == "ACKNOWLEDGED"
+        assert not queue.acknowledge_reported("agent-a", command_id)
+        assert queue.report_journal_state("agent-a", command_id, "REJECTED")
+        assert queue.acknowledge_reported("agent-a", command_id)
