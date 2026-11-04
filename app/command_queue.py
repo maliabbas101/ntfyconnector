@@ -90,6 +90,9 @@ class CommandQueue:
     def enqueue(self, agent_id: str, envelope: dict) -> None:
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id required")
+        # Keep queue ownership canonical so equivalent UUID spellings cannot
+        # create mismatched ownership or bypass agent-scoped queries.
+        agent_id = str(UUID(agent_id))
         command_id = str(UUID(envelope["command_id"]))
         # Defense in depth: do not route a signed payload to a different
         # agent, even if an upstream producer selected the wrong queue.
