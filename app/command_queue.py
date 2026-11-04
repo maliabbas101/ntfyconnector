@@ -72,8 +72,13 @@ class CommandQueue:
             raise QueueConflict("Signed command identity does not match routing")
         if payload.get("command_id") != signed.command_id:
             raise QueueConflict("Signed command ID mismatch")
-        from datetime import datetime as _datetime
-        if _datetime.fromisoformat(str(payload.get("expires_at"))) != signed.expires_at:
+        try:
+            payload_expiry = datetime.fromisoformat(str(payload.get("expires_at")))
+        except (ValueError, TypeError) as exc:
+            raise QueueConflict("Invalid signed command expiry") from exc
+        if payload_expiry.tzinfo is None or payload_expiry.utcoffset() is None:
+            raise QueueConflict("Signed command expiry must be timezone-aware")
+        if payload_expiry != signed.expires_at:
             raise QueueConflict("Signed command expiry mismatch")
         row = self.db.execute(
             "SELECT tenant_id FROM agent_enrollments WHERE agent_id=?",
