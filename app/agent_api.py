@@ -15,8 +15,12 @@ def authenticate_agent(authorization: str | None) -> str:
     """Use a pre-provisioned single-agent token; disabled unless configured."""
     agent_id = os.getenv("DEMO_AGENT_ID", "")
     token_hash = os.getenv("DEMO_AGENT_TOKEN_SHA256", "")
-    if not agent_id or not token_hash or len(token_hash) != 64:
+    if not agent_id or len(token_hash) != 64:
         raise HTTPException(status_code=503, detail="Agent polling not configured")
+    try:
+        bytes.fromhex(token_hash)
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Agent polling not configured") from None
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid agent credentials")
     token = authorization[7:]
