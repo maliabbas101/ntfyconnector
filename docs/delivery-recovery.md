@@ -9,3 +9,8 @@ The development queue and command processor remain non-trading. No production re
 ## Read-only delivery receipt
 
 An authenticated development agent can call `GET /v1/agent/commands/{command_id}/receipt` to inspect its own queue status (`PENDING`, `DELIVERED`, `ACKNOWLEDGED`, or `EXPIRED`) and the last reported journal state, if any. A command owned by another agent returns 404. The endpoint does not return payloads, requeue, or mutate delivery state. A `DELIVERED` command with no terminal report still requires local journal/broker reconciliation; never assume it is safe to resend. The receipt is an authenticated agent report, not broker evidence.
+
+
+## Stale-delivery discovery
+
+An authenticated development agent may call `GET /v1/agent/commands/recovery?min_age_seconds=60` to list command IDs delivered to **that agent** at least 60 seconds ago without an ACK. The allowed age is 1–86400 seconds. The response contains `command_ids` and `execution_enabled: false`. This is a read-only diagnostic endpoint: it does not retrieve signed payloads, retry delivery, approve execution, or resolve uncertain broker outcomes. For each ID, inspect the local durable journal and the individual receipt before taking any manual recovery action.
