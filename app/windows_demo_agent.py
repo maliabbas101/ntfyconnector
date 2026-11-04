@@ -30,9 +30,13 @@ def main(argv=None) -> int:
         parser.error("Explicit DEMO_ORDER_EXECUTION_ENABLED opt-in required")
     if args.inspect_command and args.arm_demo:
         parser.error("History inspection and execution cannot be combined")
-    endpoint = os.environ["AGENT_API_URL"]
-    token = os.environ["AGENT_TOKEN"]
-    key = bytes.fromhex(os.environ["AGENT_SIGNING_KEY_HEX"])
+    # Read-only local inspection must work even when cloud is unreachable.
+    endpoint = token = None
+    key = None
+    if not args.inspect_command:
+        endpoint = os.environ["AGENT_API_URL"]
+        token = os.environ["AGENT_TOKEN"]
+        key = bytes.fromhex(os.environ["AGENT_SIGNING_KEY_HEX"])
     identity = AgentIdentity(
         agent_id=os.environ["AGENT_ID"],
         tenant_id=os.environ["AGENT_TENANT_ID"],
