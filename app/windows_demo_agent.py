@@ -12,12 +12,15 @@ import httpx
 from app.agent_identity import AgentIdentity
 from app.agent_journal import CommandJournal
 from app.agent_transport import poll_once
+from app.mt5_reconcile import inspect_uncertain_demo_order
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Process one signed demo command")
     parser.add_argument("--arm-demo", action="store_true",
                         help="allow one demo-only order attempt after all checks")
+    parser.add_argument("--inspect-command", metavar="UUID",
+                        help="read-only history candidates for an uncertain command")
     args = parser.parse_args(argv)
     if sys.platform != "win32":
         parser.error("MT5 agent requires a Windows host")
@@ -25,6 +28,8 @@ def main(argv=None) -> int:
         "YES_I_ACCEPT_DEMO_ONLY")
     if args.arm_demo and not arm:
         parser.error("Explicit DEMO_ORDER_EXECUTION_ENABLED opt-in required")
+    if args.inspect_command and args.arm_demo:
+        parser.error("History inspection and execution cannot be combined")
     endpoint = os.environ["AGENT_API_URL"]
     token = os.environ["AGENT_TOKEN"]
     key = bytes.fromhex(os.environ["AGENT_SIGNING_KEY_HEX"])
@@ -41,12 +46,22 @@ def main(argv=None) -> int:
         parser.error("Could not initialize MT5 terminal")
     try:
         with CommandJournal(journal_path) as journal:
+            if args.inspect_command:
+                report = inspect_uncertain_demo_order(
+                    mt5, journal, args.inspect_command,
+                    expected_login=identity.expected_login,
+                    expected_server=identity.expected_server)
+                print("Manual review required; candidate deals:",
+                      report["candidate_count"])
+                for item in report["candidate_deals"]:
+                    print("Candidate deal ticket:", item["deal_ticket"])
+                return 0
             with httpx.Client(trust_env=False) as client:
                 result = poll_once(
                     endpoint=endpoint, agent_token=token, signing_secret=key,
                     journal=journal, mt5=mt5, client=client,
                     identity=identity, arm_demo_execution=arm)
-        # Never print credentials, full command payload, or order numbers.
+        # Never print credentials or full signed command payloads.
         print("Agent outcome:", result["status"])
         return 0 if result["status"] in ("EMPTY", "ACKNOWLEDGED",
                                          "UNACKNOWLEDGED") else 2
