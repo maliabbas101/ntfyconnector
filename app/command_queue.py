@@ -248,7 +248,7 @@ class CommandQueue:
                 self.db.commit()
                 return True
             transitions = {
-                None: allowed,
+                None: {"RECEIVED", "REJECTED", "EXECUTION_UNKNOWN"},
                 "RECEIVED": {"REJECTED", "EXECUTION_UNKNOWN"},
                 "EXECUTION_UNKNOWN": {"RECONCILED"},
                 "REJECTED": set(),
