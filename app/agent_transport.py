@@ -50,6 +50,11 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         raise RuntimeError("Unexpected command response")
     envelope = SignedEnvelope.model_validate(response.json())
     command = verify_bound_command(envelope, signing_secret, identity)
+    # A command must not enter the durable journal after its expiry, even if
+    # verification succeeded just before a slow or delayed handoff.
+    from datetime import datetime, timezone
+    if command.expires_at <= datetime.now(timezone.utc):
+        raise RuntimeError("Command expired before local processing")
     result = process_demo_command(command, journal, mt5)
     # Report the durable journal outcome before acknowledging delivery.
     report = client.post(
