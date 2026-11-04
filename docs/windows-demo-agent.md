@@ -91,8 +91,7 @@ demo deal against MT5 positions/history, an operator may record evidence in
 the persistent local journal:
 
 ```powershell
-python -m app.windows_demo_agent --reconcile-command YOUR_COMMAND_UUID \
-  --confirm-demo-deal-ticket VERIFIED_POSITIVE_TICKET_NUMBER
+python -m app.windows_demo_agent --reconcile-command YOUR_COMMAND_UUID --confirm-demo-deal-ticket VERIFIED_POSITIVE_TICKET_NUMBER
 ```
 
 The command will re-check the pinned demo account and read broker history.
