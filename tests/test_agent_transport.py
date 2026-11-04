@@ -90,3 +90,29 @@ def test_recovery_invalid_command_id_never_contacts_server(tmp_path):
                     endpoint="https://agent.example.com",
                     agent_token="agent-token", journal=journal,
                     command_id="not-a-uuid", client=client)
+
+
+def test_recovery_unconfigured_token_never_contacts_server(tmp_path):
+    def handler(request):
+        raise AssertionError("Missing token must fail before HTTP")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "journal.db")) as journal:
+            with pytest.raises(TransportConfigurationError, match="token"):
+                recover_terminal_receipt(
+                    endpoint="https://agent.example.com",
+                    agent_token="", journal=journal,
+                    command_id=str(uuid4()), client=client)
+
+
+def test_recovery_unknown_local_command_never_contacts_server(tmp_path):
+    def handler(request):
+        raise AssertionError("Unknown local command must not contact server")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "journal.db")) as journal:
+            result = recover_terminal_receipt(
+                endpoint="https://agent.example.com",
+                agent_token="agent-token", journal=journal,
+                command_id=str(uuid4()), client=client)
+            assert result == {
+                "status": "MANUAL_RECONCILIATION_REQUIRED",
+                "execution_enabled": False}
