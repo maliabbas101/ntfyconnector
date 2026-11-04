@@ -37,7 +37,7 @@ class FakeDemoMT5:
 def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
     queue_path = str(tmp_path / "cloud.sqlite")
     monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
-    monkeypatch.setenv("DEMO_AGENT_ID", "agent-one")
+    monkeypatch.setenv("DEMO_AGENT_ID", AGENT_ID)
     monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"token").hexdigest())
 
     command_id = str(uuid4())
@@ -71,7 +71,7 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
         "signature": sign_command(KEY, command_id, expiry, payload),
     }
     with CommandQueue(queue_path) as queue:
-        queue.enqueue("agent-one", envelope)
+        queue.enqueue(AGENT_ID, envelope)
 
     app = FastAPI()
     app.include_router(router)
@@ -114,4 +114,4 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
 
     with CommandQueue(queue_path) as queue:
         assert queue.status(command_id) == "ACKNOWLEDGED"
-        assert queue.reported_state("agent-one", command_id) == "REJECTED"
+        assert queue.reported_state(AGENT_ID, command_id) == "REJECTED"
