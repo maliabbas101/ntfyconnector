@@ -56,3 +56,31 @@ def test_disabled_by_default(monkeypatch, tmp_path):
     client, _ = setup(monkeypatch, tmp_path)
     monkeypatch.delenv("DEMO_AGENT_TOKEN_SHA256")
     assert client.get("/v1/agent/commands/next").status_code == 503
+
+
+def test_receipt_is_read_only_and_agent_scoped(monkeypatch, tmp_path):
+    client, path = setup(monkeypatch, tmp_path)
+    mine, other = str(uuid4()), str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with CommandQueue(path) as queue:
+        queue.enqueue("agent-a", {"command_id": mine, "expires_at": expiry,
+                                  "payload": {}, "signature": "a" * 64})
+        queue.enqueue("agent-b", {"command_id": other, "expires_at": expiry,
+                                  "payload": {}, "signature": "a" * 64})
+    url = "/v1/agent/commands/" + mine + "/receipt"
+    headers = {"Authorization": "Bearer secret-token"}
+    assert client.get(url).status_code == 401
+    assert client.get("/v1/agent/commands/" + other + "/receipt",
+                      headers=headers).status_code == 404
+    assert client.get(url, headers=headers).json() == {
+        "status": "PENDING", "journal_state": None, "execution_enabled": False}
+    with CommandQueue(path) as queue:
+        assert queue.status(mine) == "PENDING"
+        queue.next_for_agent("agent-a")
+        queue.report_journal_state("agent-a", mine, "REJECTED")
+    assert client.get(url, headers=headers).json() == {
+        "status": "DELIVERED", "journal_state": "REJECTED",
+        "execution_enabled": False}
+    assert client.post("/v1/agent/commands/" + mine + "/ack",
+                       headers=headers).status_code == 200
+    assert client.get(url, headers=headers).json()["status"] == "ACKNOWLEDGED"
