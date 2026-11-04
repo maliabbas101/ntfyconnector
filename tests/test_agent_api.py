@@ -109,3 +109,11 @@ def test_recovery_endpoint_is_scoped_and_read_only(monkeypatch, tmp_path):
     with CommandQueue(path) as queue:
         assert queue.status(mine) == "DELIVERED"
         assert queue.status(other) == "DELIVERED"
+
+
+def test_empty_agent_token_rejected_even_if_configured_hash_matches(monkeypatch, tmp_path):
+    client, _ = setup(monkeypatch, tmp_path)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"").hexdigest())
+    response = client.get("/v1/agent/commands/next",
+                          headers={"Authorization": "Bearer "})
+    assert response.status_code == 401
