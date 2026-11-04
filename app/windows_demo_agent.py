@@ -12,7 +12,7 @@ import httpx
 from app.agent_identity import AgentIdentity
 from app.agent_journal import CommandJournal
 from app.agent_transport import poll_once
-from app.mt5_reconcile import inspect_uncertain_demo_order
+from app.mt5_reconcile import inspect_uncertain_demo_order, confirm_demo_deal
 
 
 def main(argv=None) -> int:
@@ -21,6 +21,10 @@ def main(argv=None) -> int:
                         help="allow one demo-only order attempt after all checks")
     parser.add_argument("--inspect-command", metavar="UUID",
                         help="read-only history candidates for an uncertain command")
+    parser.add_argument("--reconcile-command", metavar="UUID",
+                        help="manually reconcile one verified MT5 demo deal")
+    parser.add_argument("--confirm-demo-deal-ticket", type=int,
+                        help="positive deal ticket independently checked by operator")
     args = parser.parse_args(argv)
     if sys.platform != "win32":
         parser.error("MT5 agent requires a Windows host")
@@ -28,12 +32,15 @@ def main(argv=None) -> int:
         "YES_I_ACCEPT_DEMO_ONLY")
     if args.arm_demo and not arm:
         parser.error("Explicit DEMO_ORDER_EXECUTION_ENABLED opt-in required")
-    if args.inspect_command and args.arm_demo:
-        parser.error("History inspection and execution cannot be combined")
+    if (args.inspect_command and (args.arm_demo or args.reconcile_command)
+            or args.reconcile_command and args.arm_demo):
+        parser.error("Inspection, reconciliation and execution are exclusive")
+    if bool(args.reconcile_command) != (args.confirm_demo_deal_ticket is not None):
+        parser.error("Reconciliation requires command UUID and verified deal ticket")
     # Read-only local inspection must work even when cloud is unreachable.
     endpoint = token = None
     key = None
-    if not args.inspect_command:
+    if not (args.inspect_command or args.reconcile_command):
         endpoint = os.environ["AGENT_API_URL"]
         token = os.environ["AGENT_TOKEN"]
         key = bytes.fromhex(os.environ["AGENT_SIGNING_KEY_HEX"])
@@ -50,6 +57,15 @@ def main(argv=None) -> int:
         parser.error("Could not initialize MT5 terminal")
     try:
         with CommandJournal(journal_path) as journal:
+            if args.reconcile_command:
+                confirmed = confirm_demo_deal(
+                    mt5, journal, args.reconcile_command,
+                    deal_ticket=args.confirm_demo_deal_ticket,
+                    expected_login=identity.expected_login,
+                    expected_server=identity.expected_server,
+                    operator_confirmed=True)
+                print("Manually reconciled demo command:", confirmed["command_id"])
+                return 0
             if args.inspect_command:
                 report = inspect_uncertain_demo_order(
                     mt5, journal, args.inspect_command,
