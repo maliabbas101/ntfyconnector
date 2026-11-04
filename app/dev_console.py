@@ -87,12 +87,16 @@ byId("refresh").addEventListener("click",async()=>{
   try { await overview(); byId("message").textContent="Overview refreshed"; }
   catch(err) { byId("message").textContent=err.message; }
 });
+let pendingRequest=null;
 byId("submit").addEventListener("click",async()=>{
   const button=byId("submit");button.disabled=true;
   try {
+    if(!pendingRequest) pendingRequest={
+      request_id:crypto.randomUUID(),requested_at:new Date().toISOString(),
+      agent_id:byId("agent").value,text:byId("signal").value};
     const data=await api("/v1/dev/tenants/commands/from-signal",{
-      method:"POST",body:JSON.stringify({
-        agent_id:byId("agent").value,text:byId("signal").value})});
+      method:"POST",body:JSON.stringify(pendingRequest)});
+    pendingRequest=null;
     byId("message").textContent="Queued command: "+data.command_id;
     await overview();
   } catch(err) { byId("message").textContent=err.message; }
