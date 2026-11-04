@@ -29,6 +29,10 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
     base = validate_agent_endpoint(endpoint)
     if not agent_token or not agent_token.strip():
         raise TransportConfigurationError("Agent token required")
+    if identity is None:
+        raise TransportConfigurationError("Pinned agent identity required before polling")
+    if len(signing_secret) < 32:
+        raise TransportConfigurationError("Command signing key must contain at least 32 bytes")
     response = client.get(
         base + "/v1/agent/commands/next",
         headers={"Authorization": "Bearer " + agent_token, "Accept": "application/json"},
@@ -40,8 +44,6 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
     response.raise_for_status()
     if response.status_code != 200:
         raise RuntimeError("Unexpected command response")
-    if identity is None:
-        raise TransportConfigurationError("Pinned agent identity required for commands")
     envelope = SignedEnvelope.model_validate(response.json())
     command = verify_bound_command(envelope, signing_secret, identity)
     result = process_demo_command(command, journal, mt5)
