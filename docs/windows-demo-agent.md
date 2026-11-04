@@ -82,3 +82,26 @@ comment and symbol. It **never** places another order or marks the command
 reconciled. Neither finding a candidate nor finding no candidate is definitive
 proof of a fill or non-fill. An operator must review the actual broker
 position, deal history, and any partial fills before recording evidence.
+
+
+## Explicitly record a confirmed demo deal
+
+After inspecting the candidate deals and independently verifying a specific
+demo deal against MT5 positions/history, an operator may record evidence in
+the persistent local journal:
+
+```powershell
+python -m app.windows_demo_agent --reconcile-command YOUR_COMMAND_UUID \
+  --confirm-demo-deal-ticket VERIFIED_POSITIVE_TICKET_NUMBER
+```
+
+The command will re-check the pinned demo account and read broker history.
+It refuses missing/unmatched tickets, unavailable history, or an already
+terminal journal record. A successful action records `RECONCILED` locally
+with the operator-confirmed deal ticket and demo login/server.
+
+This **is not automatic reconciliation** and does not prove that all partial
+fills, stops, or TP2 obligations are resolved. An operator must check those
+separately. To resume a pending cloud acknowledgment, use the documented
+`recover_terminal_receipt` flow after the cloud has recorded an earlier
+`EXECUTION_UNKNOWN` report. Never rerun an uncertain order.
