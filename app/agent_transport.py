@@ -112,13 +112,16 @@ def recover_terminal_receipt(*, endpoint: str, agent_token: str,
         return {"status": "MANUAL_RECONCILIATION_REQUIRED",
                 "execution_enabled": False}
     cloud_state = cloud.get("journal_state")
-    if cloud_state not in (None, "RECEIVED", local["state"]):
+    if local["state"] == "RECONCILED":
+        if cloud_state in (None, "RECEIVED"):
+            # Reconciliation requires the server to have recorded an earlier
+            # uncertain outcome; do not fabricate that missing history.
+            return {"status": "MANUAL_RECONCILIATION_REQUIRED",
+                    "execution_enabled": False}
+        if cloud_state not in ("EXECUTION_UNKNOWN", "RECONCILED"):
+            raise RuntimeError("Cloud journal state conflicts with local terminal outcome")
+    elif cloud_state not in (None, "RECEIVED", "REJECTED"):
         raise RuntimeError("Cloud journal state conflicts with local terminal outcome")
-    if local["state"] == "RECONCILED" and cloud_state != "RECONCILED":
-        # The server requires an authenticated EXECUTION_UNKNOWN history
-        # before accepting reconciliation. Never manufacture that history.
-        return {"status": "MANUAL_RECONCILIATION_REQUIRED",
-                "execution_enabled": False}
     report = client.post(
         base + "/v1/agent/commands/" + command_id + "/journal-state",
         headers=headers, json={"state": local["state"]},
