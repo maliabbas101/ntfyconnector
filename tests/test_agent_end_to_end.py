@@ -323,3 +323,47 @@ def test_lost_journal_report_response_can_be_recovered(monkeypatch, tmp_path):
                     "status": "ACKNOWLEDGED", "execution_enabled": False}
     with CommandQueue(queue_path) as queue:
         assert queue.status(command_id) == "ACKNOWLEDGED"
+
+
+def test_lost_command_get_response_never_redelivers(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "cloud.sqlite")
+    monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
+    monkeypatch.setenv("DEMO_AGENT_ID", AGENT_ID)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"token").hexdigest())
+    command_id = str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with CommandQueue(queue_path) as queue:
+        queue.enqueue(AGENT_ID, {
+            "command_id": command_id, "expires_at": expiry,
+            "payload": {}, "signature": "a" * 64})
+    app = FastAPI()
+    app.include_router(router)
+    lost = [False]
+    with TestClient(app) as server:
+        def handler(request):
+            response = server.request(
+                request.method, request.url.path,
+                headers=dict(request.headers), content=request.content,
+                follow_redirects=False)
+            if request.url.path.endswith("/commands/next") and not lost[0]:
+                lost[0] = True
+                raise httpx.ReadError("Delivery committed but GET response was lost")
+            return httpx.Response(response.status_code,
+                                  headers=dict(response.headers),
+                                  content=response.content)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+                args = dict(endpoint="https://agent.example.com", agent_token="token",
+                            signing_secret=KEY, journal=journal,
+                            mt5=FakeDemoMT5(), client=client,
+                            identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"))
+                with pytest.raises(httpx.ReadError):
+                    poll_once(**args)
+                assert poll_once(**args) == {
+                    "status": "EMPTY", "execution_enabled": False}
+                assert journal.get(command_id) is None
+    with CommandQueue(queue_path) as queue:
+        assert queue.status(command_id) == "DELIVERED"
+        assert queue.recover_unacknowledged(
+            AGENT_ID, now=datetime.now(timezone.utc) + timedelta(minutes=2),
+            min_age_seconds=60) == [command_id]
