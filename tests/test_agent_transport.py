@@ -38,7 +38,8 @@ def test_redirect_not_followed(tmp_path):
             with pytest.raises(httpx.HTTPStatusError):
                 poll_once(endpoint="https://agent.example.com",
                           agent_token="agent-token", signing_secret=b"x"*32,
-                          journal=journal, mt5=object(), client=client)
+                          journal=journal, mt5=object(), client=client,
+                          identity=IDENTITY)
 
 
 def test_missing_identity_or_short_key_never_contacts_server(tmp_path):
