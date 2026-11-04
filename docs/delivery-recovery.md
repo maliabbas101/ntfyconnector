@@ -19,3 +19,7 @@ An authenticated development agent may call `GET /v1/agent/commands/recovery?min
 ## Recovering a lost journal report or ACK
 
 For a command ID already present in the agent's durable local journal, call `recover_terminal_receipt(endpoint=..., agent_token=..., journal=..., command_id=..., client=...)`. The function checks the local journal first. Only locally `REJECTED` or `RECONCILED` outcomes can be reported and acknowledged. It checks the cloud receipt before reporting, and repeated calls are idempotent after ACK. It never downloads or replays the original command and never calls MT5. A local `RECEIVED`, `EXECUTION_UNKNOWN`, or missing record returns `MANUAL_RECONCILIATION_REQUIRED`; inspect broker evidence separately. Use this operation only with the already authenticated, pinned agent configuration. Cloud reports are claims, not proof of broker execution.
+
+### Conflicting journal reports
+
+Recovery checks the cloud receipt's journal state before sending another report. A cloud `EXECUTION_UNKNOWN`, `RECONCILED`, or `REJECTED` report that conflicts with the locally recorded terminal state stops recovery with an error; the command remains unacknowledged. Investigate the mismatch using durable local journal and independent broker evidence. Do not overwrite a conflicting state or automatically redeliver the command.
