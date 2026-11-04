@@ -3,6 +3,7 @@
 Absence of a matching deal is never proof that no order executed.
 Matching broker comments alone are not sufficient to automatically reconcile.
 """
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -70,3 +71,39 @@ def inspect_uncertain_demo_order(
         "absence_is_not_proof_of_no_execution": True,
         "execution_enabled": False,
     }
+
+
+def confirm_demo_deal(
+    mt5, journal, command_id: str, *,
+    deal_ticket: int, expected_login: int, expected_server: str,
+    operator_confirmed: bool = False,
+) -> dict:
+    """Record positive broker evidence ONLY after explicit operator review.
+
+    A matching comment is a candidate, not proof by itself. An operator must
+    independently review the symbol, account, fill, and any partial positions.
+    """
+    if not operator_confirmed:
+        raise ReconciliationUnavailable("Explicit operator confirmation required")
+    if not isinstance(deal_ticket, int) or isinstance(deal_ticket, bool) or deal_ticket <= 0:
+        raise ValueError("Positive broker deal ticket required")
+    report = inspect_uncertain_demo_order(
+        mt5, journal, command_id,
+        expected_login=expected_login, expected_server=expected_server)
+    matching = [
+        item for item in report["candidate_deals"]
+        if item["deal_ticket"] == deal_ticket
+    ]
+    if len(matching) != 1:
+        raise ReconciliationUnavailable("Confirmed ticket not matched in demo history")
+    evidence = {
+        "verified_demo_login": expected_login,
+        "verified_demo_server": expected_server,
+        "command_id": report["command_id"],
+        "deal_ticket": deal_ticket,
+        "operator_confirmation": "MANUALLY_REVIEWED_DEMO_DEAL",
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    journal.reconcile(report["command_id"], json.dumps(evidence, sort_keys=True))
+    return {"command_id": report["command_id"], "state": "RECONCILED",
+            "manual_confirmation": True, "execution_enabled": False}
