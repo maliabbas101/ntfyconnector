@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from urllib.parse import quote, urlparse
+from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, Field
@@ -53,7 +54,14 @@ def run_bridge() -> None:
     if not topic or "/" in topic or not source_id or not token:
         raise ValueError("Invalid bridge configuration")
     subscribe = f"{ntfy_url}/{quote(topic, safe='')}/json"
-    destination = f"{api_url}/v1/ingest/sources/{quote(source_id, safe='')}"
+    tenant_id = os.getenv("SOURCE_TENANT_ID", "").strip()
+    if tenant_id:
+        tenant_id = str(UUID(tenant_id))
+        destination = (f"{api_url}/v1/ingest/tenants/{tenant_id}/sources/"
+                       f"{quote(source_id, safe='')}")
+    else:
+        # Legacy local SQLite ingestion only. PostgreSQL requires SOURCE_TENANT_ID.
+        destination = f"{api_url}/v1/ingest/sources/{quote(source_id, safe='')}"
     # The cursor advances only after a successful API response. Replayed events
     # are harmless because ingestion deduplicates by source and external ID.
     with CursorStore(os.getenv("NTFY_CURSOR_DB", "./ntfy-bridge-cursor.sqlite"), topic) as cursor:
