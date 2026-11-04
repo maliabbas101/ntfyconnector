@@ -111,6 +111,9 @@ def recover_terminal_receipt(*, endpoint: str, agent_token: str,
     if cloud.get("status") != "DELIVERED":
         return {"status": "MANUAL_RECONCILIATION_REQUIRED",
                 "execution_enabled": False}
+    cloud_state = cloud.get("journal_state")
+    if cloud_state not in (None, "RECEIVED", local["state"]):
+        raise RuntimeError("Cloud journal state conflicts with local terminal outcome")
     report = client.post(
         base + "/v1/agent/commands/" + command_id + "/journal-state",
         headers=headers, json={"state": local["state"]},
