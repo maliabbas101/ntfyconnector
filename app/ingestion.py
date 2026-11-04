@@ -90,7 +90,8 @@ def _ingest_event(source_id, body, authorization, db, expected_tenant=None):
             or (expected_tenant is not None and source.tenant_id != expected_tenant)
             or not hmac.compare_digest(source.token_hash, token_digest(token))):
         raise HTTPException(status_code=401, detail="Invalid source credentials")
-    existing = db.scalar(select(RawEvent).where(RawEvent.source_id == source.id, RawEvent.external_id == body.external_id))
+    verified_tenant_id = source.tenant_id
+    existing = db.scalar(select(RawEvent).where(RawEvent.source_id == source_id, RawEvent.external_id == body.external_id))
     if existing:
         return {"event_id": existing.id, "status": existing.status, "duplicate": True, "execution_enabled": False}
     try:
@@ -98,7 +99,7 @@ def _ingest_event(source_id, body, authorization, db, expected_tenant=None):
         parse_status = "VALIDATED"
     except ValueError:
         parse_status = "REJECTED"
-    event = RawEvent(id=str(uuid4()), tenant_id=source.tenant_id, source_id=source.id,
+    event = RawEvent(id=str(uuid4()), tenant_id=verified_tenant_id, source_id=source_id,
                      external_id=body.external_id, text=body.text, status=parse_status,
                      received_at=datetime.now(timezone.utc))
     db.add(event)
@@ -106,11 +107,16 @@ def _ingest_event(source_id, body, authorization, db, expected_tenant=None):
         db.commit()
     except IntegrityError:
         db.rollback()
+        # Rollback clears PostgreSQL's transaction-local RLS context.
+        # Re-establish it before the duplicate lookup, never reuse the
+        # potentially expired mapped Source instance.
+        if expected_tenant is not None and db.bind.dialect.name == "postgresql":
+            set_tenant(db, expected_tenant)
         # Only treat a genuine source/external-id conflict as a duplicate.
         # Other constraint failures must surface rather than be masked.
         existing = db.scalar(
             select(RawEvent).where(
-                RawEvent.source_id == source.id,
+                RawEvent.source_id == source_id,
                 RawEvent.external_id == body.external_id,
             )
         )
