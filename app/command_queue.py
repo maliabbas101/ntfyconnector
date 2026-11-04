@@ -34,6 +34,12 @@ class CommandQueue:
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id required")
         command_id = str(UUID(envelope["command_id"]))
+        # Defense in depth: do not route a signed payload to a different
+        # agent, even if an upstream producer selected the wrong queue.
+        payload = envelope.get("payload")
+        if isinstance(payload, dict) and "agent_id" in payload:
+            if payload["agent_id"] != agent_id:
+                raise QueueConflict("Signed payload agent differs from queue owner")
         expiry = datetime.fromisoformat(envelope["expires_at"])
         if expiry.tzinfo is None or expiry.utcoffset() is None:
             raise ValueError("Timezone-aware expiry required")
