@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
+from app.agent_auth import SignedEnvelope, verify_envelope
 
 class QueueConflict(ValueError):
     pass
@@ -33,8 +34,53 @@ class CommandQueue:
                 ('RECEIVED','REJECTED','EXECUTION_UNKNOWN','RECONCILED')),
             reported_at TEXT NOT NULL
         )""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS agent_enrollments (
+            agent_id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL
+        )""")
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_agent_commands_pending ON "
                         "agent_commands(agent_id,status,expires_at)")
+
+    def enroll_agent(self, agent_id: str, tenant_id: str) -> None:
+        """Explicit development enrollment; cannot transfer an existing agent."""
+        agent_id, tenant_id = str(UUID(agent_id)), str(UUID(tenant_id))
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute(
+                "INSERT OR IGNORE INTO agent_enrollments(agent_id,tenant_id) VALUES (?,?)",
+                (agent_id, tenant_id))
+            row = self.db.execute(
+                "SELECT tenant_id FROM agent_enrollments WHERE agent_id=?",
+                (agent_id,)).fetchone()
+            if row[0] != tenant_id:
+                raise QueueConflict("Agent already belongs to another tenant")
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def enqueue_bound(self, agent_id: str, tenant_id: str,
+                      envelope: dict, signing_secret: bytes) -> None:
+        """Require enrollment and authenticated tenant/agent routing.
+
+        The legacy enqueue method remains for development fixtures only.
+        """
+        agent_id, tenant_id = str(UUID(agent_id)), str(UUID(tenant_id))
+        signed = SignedEnvelope.model_validate(envelope)
+        payload = verify_envelope(signed, signing_secret)
+        if payload.get("agent_id") != agent_id or payload.get("tenant_id") != tenant_id:
+            raise QueueConflict("Signed command identity does not match routing")
+        if payload.get("command_id") != signed.command_id:
+            raise QueueConflict("Signed command ID mismatch")
+        from datetime import datetime as _datetime
+        if _datetime.fromisoformat(str(payload.get("expires_at"))) != signed.expires_at:
+            raise QueueConflict("Signed command expiry mismatch")
+        row = self.db.execute(
+            "SELECT tenant_id FROM agent_enrollments WHERE agent_id=?",
+            (agent_id,)).fetchone()
+        if row is None or row[0] != tenant_id:
+            raise QueueConflict("Agent not enrolled in tenant")
+        self.enqueue(agent_id, envelope)
 
     def enqueue(self, agent_id: str, envelope: dict) -> None:
         if not agent_id or not agent_id.strip():
