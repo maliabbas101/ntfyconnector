@@ -36,3 +36,18 @@ def test_enrollment_and_signature_required(tmp_path):
         q.enqueue_bound(agent, tenant, env, KEY)
         assert q.next_for_agent(other) is None
         assert q.next_for_agent(agent) == env
+
+
+@pytest.mark.parametrize("bad_expiry", [None, "not-a-date", "2030-01-01T00:00:00"])
+def test_signed_payload_expiry_must_be_valid_and_timezone_aware(tmp_path, bad_expiry):
+    agent, tenant = str(uuid4()), str(uuid4())
+    envelope = make_envelope(agent, tenant)
+    payload = dict(envelope["payload"], expires_at=bad_expiry)
+    expiry = datetime.fromisoformat(envelope["expires_at"])
+    envelope["payload"] = payload
+    envelope["signature"] = sign_command(KEY, envelope["command_id"], expiry, payload)
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enroll_agent(agent, tenant)
+        with pytest.raises(QueueConflict):
+            queue.enqueue_bound(agent, tenant, envelope, KEY)
+        assert queue.status(envelope["command_id"]) is None
