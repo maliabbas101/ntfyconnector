@@ -144,3 +144,34 @@ def test_real_broker_preflight_path_submits_demo_only(tmp_path):
         assert len(mt5.sends) == 1
         assert mt5.sends[0]["volume"] == 0.17
         assert journal.get(cmd.command_id)["state"] == "EXECUTION_UNKNOWN"
+
+
+def test_order_send_exception_is_not_retried(monkeypatch, tmp_path):
+    approve(monkeypatch)
+
+    class RaisingBroker(FakeMT5):
+        def order_send(self, request):
+            self.sends.append(request)
+            raise ConnectionError("simulated uncertain MT5 response")
+
+    mt5 = RaisingBroker()
+    cmd = sample_command()
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        assert execute_demo_once(cmd, journal, mt5, armed=True)[
+            "state"] == "EXECUTION_UNKNOWN"
+        assert execute_demo_once(cmd, journal, mt5, armed=True)[
+            "duplicate"] is True
+        assert journal.get(cmd.command_id)["state"] == "EXECUTION_UNKNOWN"
+    assert len(mt5.sends) == 1
+
+
+def test_signed_reference_price_drift_blocks_execution(monkeypatch, tmp_path):
+    approve(monkeypatch)
+    mt5 = FakeMT5()
+    cmd = sample_command()
+    cmd.signal.reference_price = Decimal("4000")
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        result = execute_demo_once(cmd, journal, mt5, armed=True)
+        assert result["reason"] == "PRICE_DRIFT"
+        assert journal.get(cmd.command_id)["state"] == "REJECTED"
+        assert mt5.sends == []
