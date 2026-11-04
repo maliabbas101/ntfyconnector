@@ -1,3 +1,4 @@
+from app.agent_identity import AgentIdentity
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,6 +10,8 @@ from app.agent_journal import CommandJournal
 from app.agent_transport import poll_once
 
 KEY = b"m" * 32
+AGENT_ID = str(uuid4())
+TENANT_ID = str(uuid4())
 
 class FakeMT5:
     ACCOUNT_TRADE_MODE_DEMO = 0
@@ -25,6 +28,7 @@ def signed_envelope():
     cid = str(uuid4())
     expiry = datetime.now(timezone.utc) + timedelta(minutes=2)
     payload = {
+        "agent_id": AGENT_ID, "tenant_id": TENANT_ID,
         "command_id": cid, "expires_at": expiry.isoformat(),
         "expected_login": 123, "expected_server": "Demo",
         "signal": {"symbol": "XAUUSD", "side": "BUY",
@@ -52,7 +56,8 @@ def test_signed_command_acknowledged_after_journal(tmp_path):
         with CommandJournal(str(tmp_path / "journal.db")) as journal:
             result = poll_once(endpoint="https://agent.example.com",
                                agent_token="token", signing_secret=KEY,
-                               journal=journal, mt5=FakeMT5(), client=client)
+                               journal=journal, mt5=FakeMT5(), client=client,
+                               identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"))
             assert result["status"] == "ACKNOWLEDGED"
             assert journal.get(envelope["command_id"])["state"] == "REJECTED"
             assert seen == ["GET", "POST", "POST"]
@@ -69,6 +74,7 @@ def test_invalid_signature_never_acknowledged(tmp_path):
             with pytest.raises(ValueError):
                 poll_once(endpoint="https://agent.example.com",
                           agent_token="token", signing_secret=KEY,
-                          journal=journal, mt5=FakeMT5(), client=client)
+                          journal=journal, mt5=FakeMT5(), client=client,
+                               identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"))
             assert seen == ["GET"]
             assert journal.get(envelope["command_id"]) is None
