@@ -118,3 +118,29 @@ def test_expired_command_never_sends(monkeypatch, tmp_path):
         result = execute_demo_once(cmd, journal, mt5, armed=True)
         assert result["reason"] == "EXPIRED"
         assert mt5.sends == []
+
+
+def test_real_broker_preflight_path_submits_demo_only(tmp_path):
+    from app.parser import parse_signal
+    from app.risk import RiskPolicy
+
+    class BrokerFake(FakeMT5):
+        def symbol_info(self, symbol):
+            return SimpleNamespace(visible=True, volume_min=0.01,
+                                   volume_max=10.0, volume_step=0.01)
+
+        def order_calc_profit(self, order_type, symbol, lots, entry, sl):
+            return -580.0
+
+    mt5 = BrokerFake()
+    cmd = sample_command()
+    cmd.signal = parse_signal(
+        "BUY XAUUSD CMP 4042.8\nSL: 4037\nTP-1: 4056\nTP-2: 4082")
+    cmd.policy = RiskPolicy(
+        max_risk_fraction="0.01", max_volume="1", max_spread="0.5")
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        result = execute_demo_once(cmd, journal, mt5, armed=True)
+        assert result["state"] == "EXECUTION_UNKNOWN"
+        assert len(mt5.sends) == 1
+        assert mt5.sends[0]["volume"] == 0.17
+        assert journal.get(cmd.command_id)["state"] == "EXECUTION_UNKNOWN"
