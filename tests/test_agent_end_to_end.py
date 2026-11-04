@@ -367,3 +367,28 @@ def test_lost_command_get_response_never_redelivers(monkeypatch, tmp_path):
         assert queue.recover_unacknowledged(
             AGENT_ID, now=datetime.now(timezone.utc) + timedelta(minutes=2),
             min_age_seconds=60) == [command_id]
+
+
+def test_recovery_rejects_ack_without_disabled_execution_flag(tmp_path):
+    command_id = str(uuid4())
+    requests = []
+    def handler(request):
+        requests.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(200, json={
+                "status": "DELIVERED", "journal_state": "REJECTED",
+                "execution_enabled": False})
+        if request.url.path.endswith("/journal-state"):
+            return httpx.Response(200, json={"status": "RECORDED",
+                                              "execution_enabled": False})
+        return httpx.Response(200, json={"status": "ACKNOWLEDGED",
+                                          "execution_enabled": True})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+            journal.receive(command_id, {"test": True})
+            journal.reject(command_id, "PREFLIGHT_FAILED")
+            with pytest.raises(RuntimeError, match="acknowledgment"):
+                recover_terminal_receipt(
+                    endpoint="https://agent.example.com", agent_token="token",
+                    journal=journal, command_id=command_id, client=client)
+    assert [method for method, _ in requests] == ["GET", "POST", "POST"]
