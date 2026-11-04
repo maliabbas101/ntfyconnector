@@ -155,8 +155,8 @@ class CommandQueue:
         A lost GET response is indistinguishable from a command received by an
         agent that later lost its ACK. Neither case permits blind redelivery.
         """
-        if min_age_seconds < 1:
-            raise ValueError("min_age_seconds must be positive")
+        if not 1 <= min_age_seconds <= 86400:
+            raise ValueError("min_age_seconds must be between 1 and 86400")
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("Timezone-aware time required")
