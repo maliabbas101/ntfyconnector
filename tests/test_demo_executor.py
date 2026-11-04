@@ -32,6 +32,9 @@ class FakeMT5:
     def symbol_info_tick(self, symbol):
         return SimpleNamespace(bid=4042.6, ask=4042.8)
 
+    def order_calc_profit(self, order_type, symbol, lots, entry, sl):
+        return -580.0 * lots
+
     def order_check(self, request):
         self.checks.append(request)
         return SimpleNamespace(retcode=self.check_retcode)
@@ -49,7 +52,8 @@ def sample_command():
         signal=SimpleNamespace(
             symbol="XAUUSD", side="BUY", reference_price=Decimal("4042.8"),
             stop_loss=Decimal("4037"), take_profit_1=Decimal("4056")),
-        policy=SimpleNamespace(max_spread=Decimal("0.5")),
+        policy=SimpleNamespace(max_spread=Decimal("0.5"),
+                               max_risk_fraction=Decimal("0.01")),
         model_dump=lambda mode: {"command_id": cid, "fixture": True})
 
 
