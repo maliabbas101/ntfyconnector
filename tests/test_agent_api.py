@@ -41,8 +41,16 @@ def test_delivery_and_ack(monkeypatch, tmp_path):
     response = client.get("/v1/agent/commands/next", headers=headers)
     assert response.status_code == 200
     assert response.json() == item
-    assert client.post("/v1/agent/commands/" + item["command_id"] + "/ack",
-                       headers=headers).status_code == 200
+    ack_url = "/v1/agent/commands/" + item["command_id"] + "/ack"
+    report_url = "/v1/agent/commands/" + item["command_id"] + "/journal-state"
+    assert client.post(ack_url, headers=headers).status_code == 404
+    assert client.post(report_url, headers=headers,
+                       json={"state": "RECEIVED"}).status_code == 200
+    assert client.post(ack_url, headers=headers).status_code == 404
+    assert client.post(report_url, headers=headers,
+                       json={"state": "REJECTED"}).status_code == 200
+    assert client.post(ack_url, headers=headers).status_code == 200
+    assert client.post(ack_url, headers=headers).status_code == 200
 
 def test_disabled_by_default(monkeypatch, tmp_path):
     client, _ = setup(monkeypatch, tmp_path)
