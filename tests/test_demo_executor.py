@@ -134,7 +134,7 @@ def test_real_broker_preflight_path_submits_demo_only(tmp_path):
                                    volume_max=10.0, volume_step=0.01)
 
         def order_calc_profit(self, order_type, symbol, lots, entry, sl):
-            return -580.0
+            return -580.0 * lots
 
     mt5 = BrokerFake()
     cmd = sample_command()
