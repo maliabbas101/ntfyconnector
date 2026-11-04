@@ -1,8 +1,11 @@
 # Isolated MT5 demo order executor
 
 `app.demo_executor.execute_demo_once` is an **experimental, explicitly armed**
-order-submission primitive. It is **not connected** to the polling endpoint,
-tenant command submission, ntfy bridge, or production API.
+order-submission primitive. The polling transport can invoke it **only** when
+`arm_demo_execution=True`; ordinary polling remains non-executing.
+`app.windows_demo_agent` additionally requires the `--arm-demo` flag and
+`DEMO_ORDER_EXECUTION_ENABLED=YES_I_ACCEPT_DEMO_ONLY`. The ntfy and cloud
+services **never** directly invoke broker order methods.
 
 ## Prerequisites
 
@@ -14,8 +17,8 @@ tenant command submission, ntfy bridge, or production API.
   delete or move this file between attempts.
 - Do not use a shared/recycled command ID. The journal enforces collision
   detection and refuses a second send after an uncertain first attempt.
-- The call defaults to `armed=False`. Only a deliberate, separate operator
-  action can pass `armed=True`; there is no HTTP route to arm it.
+- The call defaults to `armed=False`. Only an explicit operator action can
+  arm the local Windows agent; there is no HTTP route to arm it.
 
 ## Safety behavior
 
@@ -38,8 +41,9 @@ transitioning the journal to `RECONCILED`. Do not replay the command.
 
 ## Not yet production-ready
 
-No automated reconciliation against MT5 orders/deals, slippage adaptation,
-partial-fill processing, TP2 position management, daily risk caps, operator
-dashboard, billing, deployment, tenant account enrollment, or Windows MT5
-integration testing is present. These are prerequisites for an operational SaaS.
-The executor alone does not make ntfy-to-MT5 execution functional end to end.
+No verified broker reconciliation against MT5 orders/deals, partial-fill
+handling, TP2 management, daily risk caps, customer RBAC/onboarding,
+subscription billing, public production deployment, or real Windows MT5
+integration testing is present. A development console and local Docker
+configuration are available, but neither establishes production readiness.
+The order attempt is intentionally left EXECUTION_UNKNOWN until verified.
