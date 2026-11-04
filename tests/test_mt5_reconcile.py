@@ -1,0 +1,96 @@
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
+from app.agent_journal import CommandJournal
+from app.mt5_reconcile import ReconciliationUnavailable, inspect_uncertain_demo_order
+
+
+class FakeDemo:
+    ACCOUNT_TRADE_MODE_DEMO = 0
+
+    def __init__(self, *, live=False, history=None):
+        self.live = live
+        self.history = history
+        self.calls = 0
+
+    def terminal_info(self):
+        return SimpleNamespace(connected=True, trade_allowed=True)
+
+    def account_info(self):
+        return SimpleNamespace(
+            login=123, server="Demo", trade_mode=2 if self.live else 0,
+            trade_allowed=True, trade_expert=True, equity=10000.0,
+            currency="USD")
+
+    def history_deals_get(self, start, end):
+        self.calls += 1
+        return self.history
+
+    def order_send(self, *_args, **_kwargs):
+        raise AssertionError("Reconciliation must never submit orders")
+
+
+def journal_uncertain(journal, cid):
+    journal.receive(cid, {
+        "command_id": cid, "expected_login": 123, "expected_server": "Demo",
+        "signal": {"symbol": "XAUUSD"}})
+    journal.mark_execution_unknown(cid)
+
+
+def test_matching_deal_is_candidate_only(tmp_path):
+    cid = str(uuid4())
+    comment = "ntfy-" + cid.replace("-", "")[:24]
+    mt5 = FakeDemo(history=[
+        SimpleNamespace(ticket=12345, order=54321,
+                        symbol="XAUUSD", comment=comment),
+        SimpleNamespace(ticket=999, order=888,
+                        symbol="EURUSD", comment=comment),
+        SimpleNamespace(ticket=777, order=666,
+                        symbol="XAUUSD", comment="unrelated"),
+    ])
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        result = inspect_uncertain_demo_order(
+            mt5, journal, cid, expected_login=123, expected_server="Demo")
+        assert result["candidate_deals"] == [
+            {"deal_ticket": 12345, "order_ticket": 54321}]
+        assert result["needs_operator_review"] is True
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
+        assert mt5.calls == 1
+
+
+def test_empty_history_does_not_auto_reject_or_reconcile(tmp_path):
+    cid = str(uuid4())
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        result = inspect_uncertain_demo_order(
+            FakeDemo(history=[]), journal, cid,
+            expected_login=123, expected_server="Demo")
+        assert result["candidate_count"] == 0
+        assert result["absence_is_not_proof_of_no_execution"]
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
+
+
+def test_live_account_denied_before_broker_history_access(tmp_path):
+    cid = str(uuid4())
+    mt5 = FakeDemo(live=True, history=[])
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        with pytest.raises(RuntimeError):
+            inspect_uncertain_demo_order(
+                mt5, journal, cid, expected_login=123, expected_server="Demo")
+        assert mt5.calls == 0
+
+
+def test_unavailable_history_keeps_uncertain_state(tmp_path):
+    cid = str(uuid4())
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        with pytest.raises(ReconciliationUnavailable):
+            inspect_uncertain_demo_order(
+                FakeDemo(history=None), journal, cid,
+                expected_login=123, expected_server="Demo")
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
