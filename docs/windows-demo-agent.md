@@ -64,3 +64,21 @@ evidence; then use the terminal-receipt recovery workflow documented in
 reconciliation in this prototype.
 
 This is a testing workflow, **not** a production recommendation.
+
+
+## Read-only broker-history inspection
+
+After an `EXECUTION_UNKNOWN` outcome, inspect local candidate deals without
+using a signing key, API token, or network connection:
+
+```powershell
+python -m app.windows_demo_agent --inspect-command YOUR_COMMAND_UUID
+```
+
+The demo login, server, tenant/agent pins and persistent journal path must
+still be configured. This inspection reads MT5 history, verifies the local
+demo account and reports **candidate** deal ticket IDs that match the command
+comment and symbol. It **never** places another order or marks the command
+reconciled. Neither finding a candidate nor finding no candidate is definitive
+proof of a fill or non-fill. An operator must review the actual broker
+position, deal history, and any partial fills before recording evidence.
