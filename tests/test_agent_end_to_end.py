@@ -1,3 +1,4 @@
+from app.agent_identity import AgentIdentity
 """Full local-development cloud queue -> HTTPS client -> journal -> ACK test."""
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,8 @@ from app.agent_transport import poll_once
 from app.command_queue import CommandQueue
 
 KEY = b"k" * 32
+AGENT_ID = str(uuid4())
+TENANT_ID = str(uuid4())
 
 class FakeDemoMT5:
     ACCOUNT_TRADE_MODE_DEMO = 0
@@ -40,6 +43,7 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
     command_id = str(uuid4())
     expiry = datetime.now(timezone.utc) + timedelta(minutes=3)
     payload = {
+        "agent_id": AGENT_ID, "tenant_id": TENANT_ID,
         "command_id": command_id,
         "expires_at": expiry.isoformat(),
         "expected_login": 123,
@@ -93,6 +97,7 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
                     journal=journal,
                     mt5=FakeDemoMT5(),
                     client=client,
+                    identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"),
                 )
                 assert result["status"] == "ACKNOWLEDGED"
                 assert result["execution_enabled"] is False
@@ -104,6 +109,7 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
                     journal=journal,
                     mt5=FakeDemoMT5(),
                     client=client,
+                    identity=AgentIdentity(AGENT_ID, TENANT_ID, 123, "Demo"),
                 )["status"] == "EMPTY"
 
     with CommandQueue(queue_path) as queue:
