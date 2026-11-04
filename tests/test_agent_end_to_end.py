@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -156,3 +157,40 @@ def test_recovery_resumes_terminal_report_without_reexecuting(monkeypatch, tmp_p
     with CommandQueue(queue_path) as queue:
         assert queue.status(command_id) == "ACKNOWLEDGED"
         assert queue.reported_state(AGENT_ID, command_id) == "REJECTED"
+
+
+def test_recovery_conflicting_cloud_report_does_not_ack(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "cloud.sqlite")
+    monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
+    monkeypatch.setenv("DEMO_AGENT_ID", AGENT_ID)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"token").hexdigest())
+    command_id = str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    envelope = {"command_id": command_id, "expires_at": expiry,
+                "payload": {}, "signature": "a" * 64}
+    with CommandQueue(queue_path) as queue:
+        queue.enqueue(AGENT_ID, envelope)
+        queue.next_for_agent(AGENT_ID)
+        queue.report_journal_state(AGENT_ID, command_id, "EXECUTION_UNKNOWN")
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as server:
+        def handler(request):
+            response = server.request(
+                request.method, request.url.path,
+                headers=dict(request.headers), content=request.content,
+                follow_redirects=False)
+            return httpx.Response(response.status_code,
+                                  headers=dict(response.headers),
+                                  content=response.content)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+                journal.receive(command_id, {"test": True})
+                journal.reject(command_id, "PREFLIGHT_FAILED")
+                with pytest.raises(RuntimeError, match="conflicts"):
+                    recover_terminal_receipt(
+                        endpoint="https://agent.example.com", agent_token="token",
+                        journal=journal, command_id=command_id, client=client)
+    with CommandQueue(queue_path) as queue:
+        assert queue.status(command_id) == "DELIVERED"
+        assert queue.reported_state(AGENT_ID, command_id) == "EXECUTION_UNKNOWN"
