@@ -60,7 +60,8 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         follow_redirects=False,
     )
     report.raise_for_status()
-    if report.status_code != 200 or report.json().get("status") != "RECORDED":
+    if (report.status_code != 200 or report.json().get("status") != "RECORDED"
+            or report.json().get("execution_enabled") is not False):
         raise RuntimeError("Invalid journal status report response")
     # Acknowledge only after a durable, terminal journal state. This is a
     # delivery receipt, never a claim that a broker order was placed.
@@ -130,7 +131,8 @@ def recover_terminal_receipt(*, endpoint: str, agent_token: str,
         headers=headers, json={"state": local["state"]},
         timeout=15.0, follow_redirects=False)
     report.raise_for_status()
-    if report.status_code != 200 or report.json().get("status") != "RECORDED":
+    if (report.status_code != 200 or report.json().get("status") != "RECORDED"
+            or report.json().get("execution_enabled") is not False):
         raise RuntimeError("Invalid recovery journal report response")
     ack = client.post(
         base + "/v1/agent/commands/" + command_id + "/ack",
