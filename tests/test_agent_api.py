@@ -117,3 +117,11 @@ def test_empty_agent_token_rejected_even_if_configured_hash_matches(monkeypatch,
     response = client.get("/v1/agent/commands/next",
                           headers={"Authorization": "Bearer "})
     assert response.status_code == 401
+
+
+def test_malformed_configured_token_digest_fails_closed(monkeypatch, tmp_path):
+    client, _ = setup(monkeypatch, tmp_path)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", "z" * 64)
+    response = client.get("/v1/agent/commands/next",
+                          headers={"Authorization": "Bearer secret-token"})
+    assert response.status_code == 503
