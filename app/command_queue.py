@@ -27,6 +27,12 @@ class CommandQueue:
             status TEXT NOT NULL CHECK(status IN ('PENDING','DELIVERED','ACKNOWLEDGED','EXPIRED')),
             delivered_at TEXT
         )""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS agent_command_reports (
+            command_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
+            journal_state TEXT NOT NULL CHECK(journal_state IN
+                ('RECEIVED','REJECTED','EXECUTION_UNKNOWN','RECONCILED')),
+            reported_at TEXT NOT NULL
+        )""")
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_agent_commands_pending ON "
                         "agent_commands(agent_id,status,expires_at)")
 
@@ -51,7 +57,7 @@ class CommandQueue:
                 "INSERT OR IGNORE INTO agent_commands "
                 "(command_id,agent_id,envelope,expires_at,status) VALUES (?,?,?,?,'PENDING')",
                 (command_id, agent_id, serialized,
-                 expiry.astimezone(timezone.utc).isoformat()))
+                 expiry.astimezone(timezone.utc).isoformat(timespec="microseconds")))
             row = self.db.execute(
                 "SELECT agent_id,envelope FROM agent_commands WHERE command_id=?",
                 (command_id,)).fetchone()
@@ -66,7 +72,7 @@ class CommandQueue:
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("Timezone-aware time required")
-        timestamp = current.astimezone(timezone.utc).isoformat()
+        timestamp = current.astimezone(timezone.utc).isoformat(timespec="microseconds")
         self.db.execute("BEGIN IMMEDIATE")
         try:
             self.db.execute(
@@ -104,7 +110,7 @@ class CommandQueue:
         if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("Timezone-aware time required")
         cutoff = (current.astimezone(timezone.utc)
-                  - timedelta(seconds=min_age_seconds)).isoformat()
+                  - timedelta(seconds=min_age_seconds)).isoformat(timespec="microseconds")
         rows = self.db.execute(
             "SELECT command_id FROM agent_commands "
             "WHERE agent_id=? AND status='DELIVERED' AND delivered_at<=? "
@@ -149,10 +155,6 @@ class CommandQueue:
             if row is None or row[0] not in ("DELIVERED", "ACKNOWLEDGED"):
                 self.db.commit()
                 return False
-            self.db.execute("""CREATE TABLE IF NOT EXISTS agent_command_reports (
-                command_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
-                journal_state TEXT NOT NULL, reported_at TEXT NOT NULL
-            )""")
             old_row = self.db.execute(
                 "SELECT journal_state FROM agent_command_reports WHERE command_id=?",
                 (command_id,)).fetchone()
@@ -183,10 +185,6 @@ class CommandQueue:
             raise
 
     def reported_state(self, agent_id: str, command_id: str) -> str | None:
-        self.db.execute("""CREATE TABLE IF NOT EXISTS agent_command_reports (
-            command_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
-            journal_state TEXT NOT NULL, reported_at TEXT NOT NULL
-        )""")
         row = self.db.execute(
             "SELECT journal_state FROM agent_command_reports "
             "WHERE agent_id=? AND command_id=?",
