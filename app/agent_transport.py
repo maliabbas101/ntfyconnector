@@ -104,6 +104,8 @@ def recover_terminal_receipt(*, endpoint: str, agent_token: str,
     if receipt.status_code != 200:
         raise RuntimeError("Unexpected recovery receipt response")
     cloud = receipt.json()
+    if cloud.get("execution_enabled") is not False:
+        raise RuntimeError("Invalid recovery receipt safety flag")
     if cloud.get("status") == "ACKNOWLEDGED":
         if cloud.get("journal_state") != local["state"]:
             raise RuntimeError("Cloud receipt conflicts with local journal")
