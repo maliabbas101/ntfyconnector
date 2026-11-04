@@ -143,3 +143,24 @@ def test_uppercase_configured_digest_is_accepted(monkeypatch, tmp_path):
                        hashlib.sha256(b"secret-token").hexdigest().upper())
     assert client.get("/v1/agent/commands/next",
                       headers={"Authorization": "Bearer secret-token"}).status_code == 204
+
+
+def test_agent_api_rejects_legacy_ack_without_journal_report(monkeypatch, tmp_path):
+    client, path = setup(monkeypatch, tmp_path)
+    command_id = str(uuid4())
+    item = {
+        "command_id": command_id,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "payload": {}, "signature": "a" * 64,
+    }
+    with CommandQueue(path) as queue:
+        queue.enqueue(AGENT_A, item)
+        queue.next_for_agent(AGENT_A)
+        assert queue.acknowledge(AGENT_A, command_id)
+    headers = {"Authorization": "Bearer secret-token"}
+    ack = "/v1/agent/commands/" + command_id + "/ack"
+    report = "/v1/agent/commands/" + command_id + "/journal-state"
+    assert client.post(ack, headers=headers).status_code == 404
+    assert client.post(report, headers=headers,
+                       json={"state": "REJECTED"}).status_code == 200
+    assert client.post(ack, headers=headers).status_code == 200
