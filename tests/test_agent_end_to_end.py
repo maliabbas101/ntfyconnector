@@ -107,4 +107,4 @@ def test_queue_to_agent_to_ack(monkeypatch, tmp_path):
                 )["status"] == "EMPTY"
 
     with CommandQueue(queue_path) as queue:
-        assert queue.status(command_id) == "ACKNOWLEDGED"
+        assert queue.status(command_id) == "ACKNOWLEDGED"\n        assert queue.reported_state("agent-one", command_id) == "REJECTED"
