@@ -46,7 +46,7 @@ def test_signed_command_acknowledged_after_journal(tmp_path):
         seen.append(request.method)
         if request.method == "GET":
             return httpx.Response(200, json=envelope)
-        assert request.url.path.endswith(envelope["command_id"] + "/ack")
+        if request.url.path.endswith("/journal-state"):\n            return httpx.Response(200, json={"status": "RECORDED"})\n        assert request.url.path.endswith(envelope["command_id"] + "/ack")
         return httpx.Response(200, json={"status": "ACKNOWLEDGED"})
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         with CommandJournal(str(tmp_path / "journal.db")) as journal:
@@ -55,7 +55,7 @@ def test_signed_command_acknowledged_after_journal(tmp_path):
                                journal=journal, mt5=FakeMT5(), client=client)
             assert result["status"] == "ACKNOWLEDGED"
             assert journal.get(envelope["command_id"])["state"] == "REJECTED"
-            assert seen == ["GET", "POST"]
+            assert seen == ["GET", "POST", "POST"]
 
 def test_invalid_signature_never_acknowledged(tmp_path):
     envelope = signed_envelope()
