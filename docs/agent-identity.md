@@ -9,3 +9,5 @@ Enrollment, secret rotation, multi-tenant cloud authorization, and live MT5 vali
 ## Strict development enqueue path
 
 `CommandQueue.enroll_agent(agent_id, tenant_id)` pins an agent to a tenant; attempts to reassign it fail. `enqueue_bound(agent_id, tenant_id, envelope, signing_secret)` verifies the HMAC, expiry, command ID, and signed tenant/agent identity before placing a command in the queue. Existing `enqueue` remains a legacy, unauthenticated development API and **must not be exposed to untrusted producers**. No production tenant authorization API or enrollment credentials are provided yet. The strict method checks local enrollment but does not authenticate who called it; callers must be trusted server-side code.
+
+Polling now fails before any HTTP request unless a local pinned `AgentIdentity` and a signing key of at least 32 bytes are supplied. This applies even when the server would otherwise return an empty queue response. Callers must explicitly configure both values.
