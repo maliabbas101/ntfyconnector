@@ -19,7 +19,7 @@ def validate_agent_endpoint(url: str) -> str:
         raise TransportConfigurationError("Invalid agent endpoint URL") from exc
     if (parts.scheme != "https" or not parts.hostname or parts.username is not None
             or parts.password is not None or parts.fragment or parts.query
-            or port not in (None, 443)):
+            or port not in (None, 443) or parts.path not in ('', '/')):
         raise TransportConfigurationError("Agent endpoint must be a plain HTTPS URL on port 443")
     return url.rstrip("/")
 
