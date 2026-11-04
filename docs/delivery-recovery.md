@@ -14,3 +14,8 @@ An authenticated development agent can call `GET /v1/agent/commands/{command_id}
 ## Stale-delivery discovery
 
 An authenticated development agent may call `GET /v1/agent/commands/recovery?min_age_seconds=60` to list command IDs delivered to **that agent** at least 60 seconds ago without an ACK. The allowed age is 1–86400 seconds. The response contains `command_ids` and `execution_enabled: false`. This is a read-only diagnostic endpoint: it does not retrieve signed payloads, retry delivery, approve execution, or resolve uncertain broker outcomes. For each ID, inspect the local durable journal and the individual receipt before taking any manual recovery action.
+
+
+## Recovering a lost journal report or ACK
+
+For a command ID already present in the agent's durable local journal, call `recover_terminal_receipt(endpoint=..., agent_token=..., journal=..., command_id=..., client=...)`. The function checks the local journal first. Only locally `REJECTED` or `RECONCILED` outcomes can be reported and acknowledged. It checks the cloud receipt before reporting, and repeated calls are idempotent after ACK. It never downloads or replays the original command and never calls MT5. A local `RECEIVED`, `EXECUTION_UNKNOWN`, or missing record returns `MANUAL_RECONCILIATION_REQUIRED`; inspect broker evidence separately. Use this operation only with the already authenticated, pinned agent configuration. Cloud reports are claims, not proof of broker execution.
