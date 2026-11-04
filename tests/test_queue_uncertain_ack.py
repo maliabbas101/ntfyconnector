@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from app.command_queue import CommandQueue
+import pytest
+from app.command_queue import CommandQueue, QueueConflict
 
 
 def test_uncertain_report_blocks_ack_until_reconciliation(tmp_path):
@@ -16,6 +17,8 @@ def test_uncertain_report_blocks_ack_until_reconciliation(tmp_path):
     with CommandQueue(path) as queue:
         queue.enqueue("agent-a", envelope)
         assert queue.next_for_agent("agent-a") == envelope
+        with pytest.raises(QueueConflict):
+            queue.report_journal_state("agent-a", command_id, "RECONCILED")
         assert queue.report_journal_state("agent-a", command_id, "EXECUTION_UNKNOWN")
         assert not queue.acknowledge_reported("agent-a", command_id)
         assert queue.status(command_id) == "DELIVERED"
