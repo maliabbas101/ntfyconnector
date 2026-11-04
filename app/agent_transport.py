@@ -74,7 +74,8 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         follow_redirects=False,
     )
     ack.raise_for_status()
-    if ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED":
+    if (ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED"
+            or ack.json().get("execution_enabled") is not False):
         raise RuntimeError("Invalid agent acknowledgment response")
     return {"status": "ACKNOWLEDGED", "result": result, "execution_enabled": False}
 
@@ -135,6 +136,7 @@ def recover_terminal_receipt(*, endpoint: str, agent_token: str,
         base + "/v1/agent/commands/" + command_id + "/ack",
         headers=headers, timeout=15.0, follow_redirects=False)
     ack.raise_for_status()
-    if ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED":
+    if (ack.status_code != 200 or ack.json().get("status") != "ACKNOWLEDGED"
+            or ack.json().get("execution_enabled") is not False):
         raise RuntimeError("Invalid recovery acknowledgment response")
     return {"status": "ACKNOWLEDGED", "execution_enabled": False}
