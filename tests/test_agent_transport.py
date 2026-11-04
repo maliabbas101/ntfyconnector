@@ -5,7 +5,7 @@ import pytest
 from app.agent_identity import AgentIdentity
 from app.agent_journal import CommandJournal
 from app.agent_transport import (TransportConfigurationError,
-                                 validate_agent_endpoint, poll_once)
+                                 validate_agent_endpoint, poll_once, recover_terminal_receipt)
 
 IDENTITY = AgentIdentity(str(uuid4()), str(uuid4()), 123, "Demo")
 
@@ -58,3 +58,23 @@ def test_missing_identity_or_short_key_never_contacts_server(tmp_path):
                 poll_once(**base, signing_secret=b"x" * 32)
             with pytest.raises(TransportConfigurationError):
                 poll_once(**base, signing_secret=b"short", identity=IDENTITY)
+
+
+def test_recovery_rejects_receipt_without_disabled_execution_flag(tmp_path):
+    command_id = str(uuid4())
+    calls = []
+    def handler(request):
+        calls.append(request.method)
+        return httpx.Response(200, json={
+            "status": "DELIVERED", "journal_state": None,
+            "execution_enabled": True})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "journal.db")) as journal:
+            journal.receive(command_id, {"test": True})
+            journal.reject(command_id, "PREFLIGHT_FAILED")
+            with pytest.raises(RuntimeError, match="safety flag"):
+                recover_terminal_receipt(
+                    endpoint="https://agent.example.com",
+                    agent_token="agent-token", journal=journal,
+                    command_id=command_id, client=client)
+    assert calls == ["GET"]
