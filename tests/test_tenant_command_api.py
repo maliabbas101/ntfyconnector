@@ -67,6 +67,8 @@ def test_server_signs_validated_signal_without_exposing_signing_key(monkeypatch,
     headers = {"Authorization": "Bearer submit-secret"}
     body = {
         "agent_id": agent,
+        "request_id": str(uuid4()),
+        "requested_at": datetime.now(timezone.utc).isoformat(),
         "text": "BUY XAUUSD CMP 4042.8\\nSL: 4037\\nTP-1: 4056\\nTP-2: 4082",
     }
     response = client.post(url, headers=headers, json=body)
@@ -74,6 +76,9 @@ def test_server_signs_validated_signal_without_exposing_signing_key(monkeypatch,
     assert "signature" not in response.json()
     assert "payload" not in response.json()
     command_id = response.json()["command_id"]
+    assert client.post(url, headers=headers, json=body).json()["command_id"] == command_id
+    assert client.post(url, headers=headers,
+                       json=dict(body, text="SELL XAUUSD CMP 4042.8\\nSL: 4050\\nTP-1: 4030\\nTP-2: 4020")).status_code == 409
     with CommandQueue(path) as queue:
         envelope = queue.next_for_agent(agent)
         assert envelope["command_id"] == command_id
@@ -101,6 +106,8 @@ def test_server_signed_submission_requires_enrollment_and_valid_signal(
     url = "/v1/dev/tenants/commands/from-signal"
     headers = {"Authorization": "Bearer submit-secret"}
     good = {"agent_id": agent,
+            "request_id": str(uuid4()),
+            "requested_at": datetime.now(timezone.utc).isoformat(),
             "text": "BUY XAUUSD CMP 4042.8\\nSL: 4037\\nTP-1: 4056\\nTP-2: 4082"}
     assert client.post(url, headers=headers, json=good).status_code == 409
     assert client.post(url, headers=headers,
