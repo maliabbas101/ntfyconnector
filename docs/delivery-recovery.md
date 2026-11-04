@@ -27,3 +27,5 @@ Recovery checks the cloud receipt's journal state before sending another report.
 ### Reconciliation history prerequisite
 
 A locally `RECONCILED` command can complete recovery only when the cloud receipt already records `EXECUTION_UNKNOWN` or the same `RECONCILED` outcome. If the cloud has no report or only `RECEIVED`, the helper returns `MANUAL_RECONCILIATION_REQUIRED` without changing cloud state. It never manufactures an uncertainty report to bypass the state-transition requirement. A locally `REJECTED` command may recover from an absent, `RECEIVED`, or matching `REJECTED` cloud report.
+
+The recovery client also requires an explicit `execution_enabled: false` field on the cloud receipt. Missing or enabled flags cause recovery to fail before posting journal reports or ACKs.
