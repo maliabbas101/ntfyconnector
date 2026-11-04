@@ -2,9 +2,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 import httpx
 import pytest
+from app.agent_identity import AgentIdentity
 from app.agent_journal import CommandJournal
 from app.agent_transport import (TransportConfigurationError,
                                  validate_agent_endpoint, poll_once)
+
+IDENTITY = AgentIdentity(str(uuid4()), str(uuid4()), 123, "Demo")
 
 def test_https_endpoint_validation():
     assert validate_agent_endpoint("https://agent.example.com/") == "https://agent.example.com"
@@ -23,7 +26,8 @@ def test_empty_poll_never_touches_terminal(tmp_path):
         with CommandJournal(str(tmp_path / "journal.db")) as journal:
             result = poll_once(endpoint="https://agent.example.com",
                                agent_token="agent-token", signing_secret=b"x"*32,
-                               journal=journal, mt5=object(), client=client)
+                               journal=journal, mt5=object(), client=client,
+                               identity=IDENTITY)
             assert result == {"status": "EMPTY", "execution_enabled": False}
 
 def test_redirect_not_followed(tmp_path):
@@ -35,3 +39,16 @@ def test_redirect_not_followed(tmp_path):
                 poll_once(endpoint="https://agent.example.com",
                           agent_token="agent-token", signing_secret=b"x"*32,
                           journal=journal, mt5=object(), client=client)
+
+
+def test_missing_identity_or_short_key_never_contacts_server(tmp_path):
+    def handler(request):
+        raise AssertionError("Configuration must be checked before network access")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "journal.db")) as journal:
+            base = dict(endpoint="https://agent.example.com", agent_token="token",
+                        journal=journal, mt5=object(), client=client)
+            with pytest.raises(TransportConfigurationError):
+                poll_once(**base, signing_secret=b"x" * 32)
+            with pytest.raises(TransportConfigurationError):
+                poll_once(**base, signing_secret=b"short", identity=IDENTITY)
