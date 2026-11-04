@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import os
 from contextlib import contextmanager
-from uuid import UUID, uuid4
+from uuid import UUID, uuid5, NAMESPACE_URL
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -75,6 +75,8 @@ def submit_command(body: SubmitCommand,
 
 class SubmitSignal(BaseModel):
     agent_id: str
+    request_id: str
+    requested_at: datetime
     text: str = Field(min_length=1, max_length=8192)
 
 
@@ -94,6 +96,12 @@ def submit_signal(body: SubmitSignal,
         raise HTTPException(status_code=503, detail="Command queue not configured")
     try:
         agent_id = str(UUID(body.agent_id))
+        request_id = str(UUID(body.request_id))
+        requested_at = body.requested_at
+        now = datetime.now(timezone.utc)
+        if (requested_at.tzinfo is None or requested_at.utcoffset() is None
+                or abs((now - requested_at).total_seconds()) > 60):
+            raise ValueError("Request timestamp out of allowed window")
         expected_login = int(os.environ["DEMO_COMMAND_AGENT_LOGIN"])
         expected_server = os.environ["DEMO_COMMAND_AGENT_SERVER"]
         if expected_login <= 0 or not expected_server.strip():
@@ -108,8 +116,11 @@ def submit_signal(body: SubmitSignal,
         signal = parse_signal(body.text)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid signal") from exc
-    command_id = str(uuid4())
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    # Stable command identity and expiry make an HTTP retry idempotent.
+    # Reusing the request_id with altered content conflicts in the queue.
+    command_id = str(uuid5(
+        NAMESPACE_URL, tenant_id + ":" + agent_id + ":" + request_id))
+    expires_at = requested_at + timedelta(minutes=5)
     payload = {
         "agent_id": agent_id, "tenant_id": tenant_id,
         "command_id": command_id, "expires_at": expires_at.isoformat(),
