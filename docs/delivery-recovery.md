@@ -23,3 +23,7 @@ For a command ID already present in the agent's durable local journal, call `rec
 ### Conflicting journal reports
 
 Recovery checks the cloud receipt's journal state before sending another report. A cloud `EXECUTION_UNKNOWN`, `RECONCILED`, or `REJECTED` report that conflicts with the locally recorded terminal state stops recovery with an error; the command remains unacknowledged. Investigate the mismatch using durable local journal and independent broker evidence. Do not overwrite a conflicting state or automatically redeliver the command.
+
+### Reconciliation history prerequisite
+
+A locally `RECONCILED` command can complete recovery only when the cloud receipt already records `EXECUTION_UNKNOWN` or the same `RECONCILED` outcome. If the cloud has no report or only `RECEIVED`, the helper returns `MANUAL_RECONCILIATION_REQUIRED` without changing cloud state. It never manufactures an uncertainty report to bypass the state-transition requirement. A locally `REJECTED` command may recover from an absent, `RECEIVED`, or matching `REJECTED` cloud report.
