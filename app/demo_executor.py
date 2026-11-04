@@ -63,6 +63,18 @@ def execute_demo_once(command, journal, mt5, *, armed: bool = False) -> dict:
                 return reject("INVALID_STOPS")
             order_type = mt5.ORDER_TYPE_SELL
 
+        # Recalculate worst-case stop loss using the FINAL price and volume.
+        # Preflight may have used an earlier quote; never spend beyond budget.
+        stop_result = mt5.order_calc_profit(
+            order_type, command.signal.symbol, float(preflight.volume),
+            float(entry), float(command.signal.stop_loss))
+        if stop_result is None:
+            return reject("FINAL_RISK_UNAVAILABLE")
+        stop_loss_amount = Decimal(str(stop_result))
+        risk_budget = Decimal(account.equity) * command.policy.max_risk_fraction
+        if (not stop_loss_amount.is_finite() or stop_loss_amount >= 0
+                or -stop_loss_amount > risk_budget):
+            return reject("FINAL_RISK_EXCEEDED")
         # Detect changes between quote/preflight and the last safe point.
         if verify_demo_account(
             mt5, expected_login=command.expected_login,
