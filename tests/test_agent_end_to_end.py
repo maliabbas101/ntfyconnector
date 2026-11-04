@@ -392,3 +392,25 @@ def test_recovery_rejects_ack_without_disabled_execution_flag(tmp_path):
                     endpoint="https://agent.example.com", agent_token="token",
                     journal=journal, command_id=command_id, client=client)
     assert [method for method, _ in requests] == ["GET", "POST", "POST"]
+
+
+def test_recovery_rejects_unsafe_journal_report_response(tmp_path):
+    command_id = str(uuid4())
+    methods = []
+    def handler(request):
+        methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json={
+                "status": "DELIVERED", "journal_state": None,
+                "execution_enabled": False})
+        return httpx.Response(200, json={
+            "status": "RECORDED", "execution_enabled": True})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+            journal.receive(command_id, {"test": True})
+            journal.reject(command_id, "PREFLIGHT_FAILED")
+            with pytest.raises(RuntimeError, match="journal report"):
+                recover_terminal_receipt(
+                    endpoint="https://agent.example.com", agent_token="token",
+                    journal=journal, command_id=command_id, client=client)
+    assert methods == ["GET", "POST"]
