@@ -93,8 +93,16 @@ class CommandQueue:
                 "UPDATE agent_commands SET status='ACKNOWLEDGED' "
                 "WHERE agent_id=? AND command_id=? AND status='DELIVERED'",
                 (agent_id, command_id))
+            if result.rowcount == 1:
+                self.db.commit()
+                return True
+            # A lost HTTP response must not make an already-durable ACK fail.
+            # Do not acknowledge PENDING or EXPIRED commands.
+            row = self.db.execute(
+                "SELECT status FROM agent_commands WHERE agent_id=? AND command_id=?",
+                (agent_id, command_id)).fetchone()
             self.db.commit()
-            return result.rowcount == 1
+            return row is not None and row[0] == "ACKNOWLEDGED"
         except BaseException:
             self.db.rollback()
             raise
