@@ -195,3 +195,28 @@ def test_final_broker_risk_recheck_prevents_order(monkeypatch, tmp_path):
         assert result["reason"] == "FINAL_RISK_EXCEEDED"
         assert journal.get(cmd.command_id)["state"] == "REJECTED"
         assert mt5.sends == []
+
+
+def test_quote_change_after_order_check_blocks_submission(monkeypatch, tmp_path):
+    approve(monkeypatch)
+
+    class MovingQuoteBroker(FakeMT5):
+        def __init__(self):
+            super().__init__()
+            self.checked = False
+
+        def order_check(self, request):
+            self.checked = True
+            return super().order_check(request)
+
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(bid=4042.7 if self.checked else 4042.6,
+                                   ask=4042.9 if self.checked else 4042.8)
+
+    mt5 = MovingQuoteBroker()
+    cmd = sample_command()
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        result = execute_demo_once(cmd, journal, mt5, armed=True)
+        assert result["reason"] == "QUOTE_CHANGED"
+        assert journal.get(cmd.command_id)["state"] == "REJECTED"
+        assert mt5.sends == []
