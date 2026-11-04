@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import os
 from contextlib import contextmanager
+from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel
 from typing import Literal
@@ -18,6 +19,7 @@ def authenticate_agent(authorization: str | None) -> str:
     if not agent_id or len(token_hash) != 64:
         raise HTTPException(status_code=503, detail="Agent polling not configured")
     try:
+        agent_id = str(UUID(agent_id))
         bytes.fromhex(token_hash)
     except ValueError:
         raise HTTPException(status_code=503, detail="Agent polling not configured") from None
@@ -25,7 +27,7 @@ def authenticate_agent(authorization: str | None) -> str:
         raise HTTPException(status_code=401, detail="Invalid agent credentials")
     token = authorization[7:]
     supplied = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    if not token or not hmac.compare_digest(supplied, token_hash):
+    if not token or not hmac.compare_digest(supplied, token_hash.lower()):
         raise HTTPException(status_code=401, detail="Invalid agent credentials")
     return agent_id
 
