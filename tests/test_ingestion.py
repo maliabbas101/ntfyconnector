@@ -50,3 +50,37 @@ def test_deduplication_and_rejection():
     assert rejected["status"] == "REJECTED"
     with Session() as db:
         assert len(db.scalars(select(RawEvent)).all()) == 2
+
+
+def test_tenant_scoped_ingestion_requires_matching_source_and_token():
+    client = TestClient(app)
+    with Session() as db:
+        tenant_a = db.get(Source, "source-a").tenant_id
+        tenant_b = db.get(Source, "source-b").tenant_id
+    payload = {"external_id": "tenant-scoped-1", "text": SIGNAL}
+    url_a = f"/v1/ingest/tenants/{tenant_a}/sources/source-a"
+    url_wrong = f"/v1/ingest/tenants/{tenant_b}/sources/source-a"
+    headers = {"Authorization": "Bearer secret-a"}
+    assert client.post(url_a, json=payload).status_code == 401
+    assert client.post(url_wrong, json=payload, headers=headers).status_code == 401
+    assert client.post(url_a, json=payload,
+                       headers={"Authorization": "Bearer secret-b"}).status_code == 401
+    success = client.post(url_a, json=payload, headers=headers)
+    assert success.status_code == 202
+    assert success.json()["status"] == "VALIDATED"
+    repeat = client.post(url_a, json=payload, headers=headers)
+    assert repeat.json()["duplicate"] is True
+    assert repeat.json()["event_id"] == success.json()["event_id"]
+    with Session() as db:
+        event = db.scalar(select(RawEvent).where(
+            RawEvent.external_id == "tenant-scoped-1"))
+        assert event.tenant_id == tenant_a
+
+
+def test_tenant_scoped_ingestion_rejects_malformed_tenant_identifier():
+    client = TestClient(app)
+    result = client.post(
+        "/v1/ingest/tenants/not-a-uuid/sources/source-a",
+        headers={"Authorization": "Bearer secret-a"},
+        json={"external_id": "x", "text": SIGNAL})
+    assert result.status_code == 404
