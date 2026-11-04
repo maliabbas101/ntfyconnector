@@ -179,3 +179,19 @@ def test_signed_reference_price_drift_blocks_execution(monkeypatch, tmp_path):
         assert result["reason"] == "PRICE_DRIFT"
         assert journal.get(cmd.command_id)["state"] == "REJECTED"
         assert mt5.sends == []
+
+
+def test_final_broker_risk_recheck_prevents_order(monkeypatch, tmp_path):
+    approve(monkeypatch)
+
+    class IncreasedLossBroker(FakeMT5):
+        def order_calc_profit(self, order_type, symbol, lots, entry, sl):
+            return -1500.0
+
+    mt5 = IncreasedLossBroker()
+    cmd = sample_command()
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        result = execute_demo_once(cmd, journal, mt5, armed=True)
+        assert result["reason"] == "FINAL_RISK_EXCEEDED"
+        assert journal.get(cmd.command_id)["state"] == "REJECTED"
+        assert mt5.sends == []
