@@ -66,3 +66,21 @@ def test_recovery_age_boundary_is_exact_to_microsecond(tmp_path):
         assert queue.recover_unacknowledged(
             "agent-a", now=delivered_at + timedelta(seconds=60),
             min_age_seconds=60) == [item["command_id"]]
+
+
+@pytest.mark.parametrize("age", [-1, 0, 86401])
+def test_recovery_rejects_out_of_range_age(tmp_path, age):
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        with pytest.raises(ValueError, match="between 1 and 86400"):
+            queue.recover_unacknowledged("agent-a", min_age_seconds=age)
+
+
+def test_recovery_maximum_supported_age(tmp_path):
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    item = envelope(expires=now + timedelta(days=2))
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enqueue("agent-a", item)
+        assert queue.next_for_agent("agent-a", now=now) == item
+        assert queue.recover_unacknowledged(
+            "agent-a", now=now + timedelta(days=1),
+            min_age_seconds=86400) == [item["command_id"]]
