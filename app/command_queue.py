@@ -164,6 +164,40 @@ class CommandQueue:
             (agent_id, cutoff)).fetchall()
         return [row[0] for row in rows]
 
+    def acknowledge_reported(self, agent_id: str, command_id: str) -> bool:
+        """ACK only a delivered command with a terminal agent journal claim.
+
+        This does not verify broker execution and does not redeliver commands.
+        """
+        command_id = str(UUID(command_id))
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT c.status, r.journal_state FROM agent_commands c "
+                "LEFT JOIN agent_command_reports r "
+                "ON r.command_id=c.command_id AND r.agent_id=c.agent_id "
+                "WHERE c.agent_id=? AND c.command_id=?",
+                (agent_id, command_id)).fetchone()
+            if row is None:
+                self.db.commit()
+                return False
+            status, reported = row
+            if status == "ACKNOWLEDGED":
+                self.db.commit()
+                return True
+            if status != "DELIVERED" or reported not in ("REJECTED", "RECONCILED"):
+                self.db.commit()
+                return False
+            self.db.execute(
+                "UPDATE agent_commands SET status='ACKNOWLEDGED' "
+                "WHERE agent_id=? AND command_id=? AND status='DELIVERED'",
+                (agent_id, command_id))
+            self.db.commit()
+            return True
+        except BaseException:
+            self.db.rollback()
+            raise
+
     def acknowledge(self, agent_id: str, command_id: str) -> bool:
         command_id = str(UUID(command_id))
         self.db.execute("BEGIN IMMEDIATE")
