@@ -276,6 +276,23 @@ class CommandQueue:
             (agent_id, str(UUID(command_id)))).fetchone()
         return row[0] if row else None
 
+    def delivery_receipt(self, agent_id: str, command_id: str) -> dict | None:
+        """Read delivery status scoped to the authenticated agent.
+
+        A missing or differently owned command is indistinguishable.
+        This never returns the signed payload and never requeues a command.
+        """
+        row = self.db.execute(
+            "SELECT c.status, r.journal_state FROM agent_commands c "
+            "LEFT JOIN agent_command_reports r "
+            "ON r.command_id=c.command_id AND r.agent_id=c.agent_id "
+            "WHERE c.agent_id=? AND c.command_id=?",
+            (agent_id, str(UUID(command_id)))).fetchone()
+        if row is None:
+            return None
+        return {"status": row[0], "journal_state": row[1],
+                "execution_enabled": False}
+
     def status(self, command_id: str) -> str | None:
         row = self.db.execute("SELECT status FROM agent_commands WHERE command_id=?",
                               (str(UUID(command_id)),)).fetchone()
