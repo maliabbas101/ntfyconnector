@@ -31,3 +31,5 @@ A locally `RECONCILED` command can complete recovery only when the cloud receipt
 The recovery client also requires an explicit `execution_enabled: false` field on the cloud receipt. Missing or enabled flags cause recovery to fail before posting journal reports or ACKs.
 
 Both ordinary polling and journal-only recovery require acknowledgment responses to contain `status: ACKNOWLEDGED` and `execution_enabled: false`. An unsafe or malformed ACK response is treated as a protocol failure, even if the server may already have durably acknowledged the command. Inspect the read-only receipt before any further action.
+
+Journal-state reporting also requires the server response to explicitly contain `status: RECORDED` and `execution_enabled: false` before the agent attempts an ACK. A malformed or unsafe report response stops the flow; inspect the read-only receipt rather than replaying the command.
