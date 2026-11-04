@@ -100,6 +100,21 @@ def execute_demo_once(command, journal, mt5, *, armed: bool = False) -> dict:
             mt5, expected_login=command.expected_login,
             expected_server=command.expected_server) != account:
             return reject("ACCOUNT_CHANGED")
+        # Reject stale quotes after order_check rather than chasing price.
+        final_tick = mt5.symbol_info_tick(command.signal.symbol)
+        if final_tick is None:
+            return reject("QUOTE_UNAVAILABLE")
+        final_bid = Decimal(str(final_tick.bid))
+        final_ask = Decimal(str(final_tick.ask))
+        if (not final_bid.is_finite() or not final_ask.is_finite()
+                or final_bid <= 0 or final_ask < final_bid
+                or final_ask - final_bid > command.policy.max_spread):
+            return reject("FINAL_QUOTE_UNSAFE")
+        final_entry = final_ask if command.signal.side == "BUY" else final_bid
+        if final_entry != entry:
+            return reject("QUOTE_CHANGED")
+        if command.expires_at <= datetime.now(timezone.utc):
+            return reject("EXPIRED")
     except (AccountVerificationError, AttributeError, TypeError, ValueError,
             ArithmeticError):
         return reject("BROKER_PREFLIGHT_UNAVAILABLE")
