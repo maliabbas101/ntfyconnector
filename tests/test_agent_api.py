@@ -84,3 +84,28 @@ def test_receipt_is_read_only_and_agent_scoped(monkeypatch, tmp_path):
     assert client.post("/v1/agent/commands/" + mine + "/ack",
                        headers=headers).status_code == 200
     assert client.get(url, headers=headers).json()["status"] == "ACKNOWLEDGED"
+
+
+def test_recovery_endpoint_is_scoped_and_read_only(monkeypatch, tmp_path):
+    client, path = setup(monkeypatch, tmp_path)
+    mine, other = str(uuid4()), str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with CommandQueue(path) as queue:
+        for agent, command_id in (("agent-a", mine), ("agent-b", other)):
+            queue.enqueue(agent, {"command_id": command_id, "expires_at": expiry,
+                                  "payload": {}, "signature": "a" * 64})
+            queue.next_for_agent(agent)
+        # A future cutoff makes both deliveries old enough without sleeping.
+        assert queue.recover_unacknowledged(
+            "agent-a", now=datetime.now(timezone.utc) + timedelta(minutes=2),
+            min_age_seconds=60) == [mine]
+    headers = {"Authorization": "Bearer secret-token"}
+    url = "/v1/agent/commands/recovery"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=headers, params={"min_age_seconds": 0}).status_code == 422
+    # No old deliveries are requeued by this endpoint.
+    assert client.get(url, headers=headers).json() == {
+        "command_ids": [], "execution_enabled": False}
+    with CommandQueue(path) as queue:
+        assert queue.status(mine) == "DELIVERED"
+        assert queue.status(other) == "DELIVERED"
