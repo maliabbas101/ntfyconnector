@@ -25,7 +25,9 @@ tenant command submission, ntfy bridge, or production API.
    loss-per-lot; refuse excess spread or risk.
 4. Reject unacceptable drift from the signed reference price and invalid SL/TP
    sides; use TP1 as the broker-side take-profit. TP2 is **not** managed.
-5. Call `order_check` and verify account pin again.
+5. Recalculate monetary stop-loss risk at the final quote and selected volume,
+   refuse any loss over the configured equity risk budget, then call
+   `order_check` and verify the account pin again.
 6. Atomically record `EXECUTION_UNKNOWN` **before** the one `order_send` call.
 7. Do **not** automatically retry or infer a filled position from an MT5 result.
 
