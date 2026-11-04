@@ -91,7 +91,7 @@ def execute_demo_once(command, journal, mt5, *, armed: bool = False) -> dict:
             "sl": float(command.signal.stop_loss),
             "tp": float(command.signal.take_profit_1),
             "deviation": 0,
-            "comment": "ntfy-demo-" + cid[:8],
+            "comment": "ntfy-" + cid.replace("-", "")[:24],
         }
         check = mt5.order_check(request)
         if check is None or getattr(check, "retcode", None) != 0:
