@@ -19,8 +19,9 @@ def authenticate_agent(authorization: str | None) -> str:
         raise HTTPException(status_code=503, detail="Agent polling not configured")
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid agent credentials")
-    supplied = hashlib.sha256(authorization[7:].encode("utf-8")).hexdigest()
-    if not hmac.compare_digest(supplied, token_hash):
+    token = authorization[7:]
+    supplied = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if not token or not hmac.compare_digest(supplied, token_hash):
         raise HTTPException(status_code=401, detail="Invalid agent credentials")
     return agent_id
 
