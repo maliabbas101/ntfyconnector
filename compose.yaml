@@ -1,0 +1,37 @@
+# Local SQLite demonstration only. Do not expose directly to the internet.
+services:
+  api:
+    build: .
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: sqlite:////data/ntfyconnector.db
+      DEMO_COMMAND_QUEUE_PATH: /data/commands.sqlite
+      DEMO_AGENT_ID: ${DEMO_AGENT_ID:-}
+      DEMO_AGENT_TOKEN_SHA256: ${DEMO_AGENT_TOKEN_SHA256:-}
+      DEMO_COMMAND_TENANT_ID: ${DEMO_COMMAND_TENANT_ID:-}
+      DEMO_COMMAND_AGENT_LOGIN: ${DEMO_COMMAND_AGENT_LOGIN:-}
+      DEMO_COMMAND_AGENT_SERVER: ${DEMO_COMMAND_AGENT_SERVER:-}
+      DEMO_COMMAND_SUBMIT_TOKEN_SHA256: ${DEMO_COMMAND_SUBMIT_TOKEN_SHA256:-}
+      DEMO_COMMAND_SIGNING_KEY_HEX: ${DEMO_COMMAND_SIGNING_KEY_HEX:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - app_data:/data
+    restart: unless-stopped
+  dispatcher:
+    profiles: ["dispatcher"]
+    build: .
+    command: python -m app.signal_dispatcher
+    environment:
+      DATABASE_URL: sqlite:////data/ntfyconnector.db
+      DEMO_COMMAND_QUEUE_PATH: /data/commands.sqlite
+      DEMO_COMMAND_TENANT_ID: ${DEMO_COMMAND_TENANT_ID:-}
+      DEMO_COMMAND_AGENT_ID: ${DEMO_AGENT_ID:-}
+      DEMO_COMMAND_AGENT_LOGIN: ${DEMO_COMMAND_AGENT_LOGIN:-}
+      DEMO_COMMAND_AGENT_SERVER: ${DEMO_COMMAND_AGENT_SERVER:-}
+      DEMO_COMMAND_SIGNING_KEY_HEX: ${DEMO_COMMAND_SIGNING_KEY_HEX:-}
+    volumes:
+      - app_data:/data
+    restart: unless-stopped
+volumes:
+  app_data:
