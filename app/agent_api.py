@@ -42,6 +42,19 @@ def next_command(response: Response, authorization: str | None = Header(default=
         return None
     return envelope
 
+@router.get("/commands/recovery")
+def recovery_candidates(authorization: str | None = Header(default=None),
+                        min_age_seconds: int = 60):
+    """List only this agent's stale deliveries; never resend or mutate."""
+    agent_id = authenticate_agent(authorization)
+    if not 1 <= min_age_seconds <= 86400:
+        raise HTTPException(status_code=422, detail="Invalid recovery age")
+    with open_queue() as queue:
+        ids = queue.recover_unacknowledged(
+            agent_id, min_age_seconds=min_age_seconds)
+    return {"command_ids": ids, "execution_enabled": False}
+
+
 @router.get("/commands/{command_id}/receipt")
 def command_receipt(command_id: str, authorization: str | None = Header(default=None)):
     """Read-only reconciliation aid; does not redeliver uncertain commands."""
