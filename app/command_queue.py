@@ -187,9 +187,12 @@ class CommandQueue:
                 self.db.commit()
                 return False
             status, reported = row
+            # Legacy queue.acknowledge() can mark a delivery acknowledged
+            # without an agent journal report. Never treat that as a valid
+            # reported acknowledgment in the agent-facing protocol.
             if status == "ACKNOWLEDGED":
                 self.db.commit()
-                return True
+                return reported in ("REJECTED", "RECONCILED")
             if status != "DELIVERED" or reported not in ("REJECTED", "RECONCILED"):
                 self.db.commit()
                 return False
