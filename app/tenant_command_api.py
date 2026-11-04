@@ -134,3 +134,14 @@ def submit_signal(body: SubmitSignal,
         raise HTTPException(status_code=409, detail="Command rejected") from exc
     return {"status": "QUEUED", "command_id": command_id,
             "expires_at": expires_at.isoformat(), "execution_enabled": False}
+
+
+@router.get("/overview")
+def tenant_overview(authorization: str | None = Header(default=None)):
+    """Read-only development dashboard data, scoped by server-side tenant."""
+    tenant_id = authenticate_tenant(authorization)
+    path = os.getenv("DEMO_COMMAND_QUEUE_PATH")
+    if not path:
+        raise HTTPException(status_code=503, detail="Command queue not configured")
+    with CommandQueue(path) as queue:
+        return queue.tenant_overview(tenant_id)
