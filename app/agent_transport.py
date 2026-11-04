@@ -7,6 +7,7 @@ import httpx
 from app.agent_auth import SignedEnvelope
 from app.agent_identity import AgentIdentity, verify_bound_command
 from app.agent_processor import process_demo_command
+from app.demo_executor import execute_demo_once
 
 class TransportConfigurationError(ValueError):
     pass
@@ -25,9 +26,12 @@ def validate_agent_endpoint(url: str) -> str:
 
 def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
               journal, mt5, client: httpx.Client,
-              identity: AgentIdentity | None = None) -> dict:
-    """Fetch one signed command; no auto-retry and no broker execution.
+              identity: AgentIdentity | None = None,
+              arm_demo_execution: bool = False) -> dict:
+    """Poll one signed command; default is non-executing.
 
+    The armed demo path never retries broker orders. Any attempted send
+    persists EXECUTION_UNKNOWN and cannot be ACKed until reconciled.
     Token must be provisioned out of band; never log token or signed payload.
     """
     base = validate_agent_endpoint(endpoint)
@@ -50,7 +54,10 @@ def poll_once(*, endpoint: str, agent_token: str, signing_secret: bytes,
         raise RuntimeError("Unexpected command response")
     envelope = SignedEnvelope.model_validate(response.json())
     command = verify_bound_command(envelope, signing_secret, identity)
-    result = process_demo_command(command, journal, mt5)
+    # Command authenticity, expiry, tenant, agent, and account pins have all
+    # been verified before an explicitly armed demo executor is reachable.
+    result = (execute_demo_once(command, journal, mt5, armed=True)
+              if arm_demo_execution else process_demo_command(command, journal, mt5))
     # Report the durable journal outcome before acknowledging delivery.
     report = client.post(
         base + "/v1/agent/commands/" + envelope.command_id + "/journal-state",
