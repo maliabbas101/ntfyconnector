@@ -4,6 +4,7 @@ Absence of a matching deal is never proof that no order executed.
 Matching broker comments alone are not sufficient to automatically reconcile.
 """
 import json
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -31,7 +32,8 @@ def inspect_uncertain_demo_order(
             payload.get("expected_server") != expected_server):
         raise ReconciliationUnavailable("Journal account identity differs from local pin")
     signal = payload.get("signal")
-    if not isinstance(signal, dict) or signal.get("symbol") != "XAUUSD":
+    if (not isinstance(signal, dict) or signal.get("symbol") != "XAUUSD"
+            or signal.get("side") not in ("BUY", "SELL")):
         raise ReconciliationUnavailable("Unsupported local journal signal")
 
     before = verify_demo_account(
@@ -55,6 +57,19 @@ def inspect_uncertain_demo_order(
         if getattr(deal, "comment", None) != comment:
             continue
         if getattr(deal, "symbol", None) != signal["symbol"]:
+            continue
+        # A closing/opposite-side trade with a copied comment is not
+        # acceptable evidence for the original opening order.
+        expected_type = (mt5.DEAL_TYPE_BUY if signal["side"] == "BUY"
+                         else mt5.DEAL_TYPE_SELL)
+        if (getattr(deal, "type", None) != expected_type
+                or getattr(deal, "entry", None) != mt5.DEAL_ENTRY_IN):
+            continue
+        try:
+            volume = Decimal(str(getattr(deal, "volume", None)))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if not volume.is_finite() or volume <= 0:
             continue
         ticket = getattr(deal, "ticket", None)
         order = getattr(deal, "order", None)
