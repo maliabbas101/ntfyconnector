@@ -3,7 +3,8 @@ import hashlib
 import hmac
 import os
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
+from app.tenant_context import set_tenant
 from sqlalchemy import create_engine, String, DateTime, ForeignKey, UniqueConstraint, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -54,13 +55,40 @@ router = APIRouter(prefix="/v1/ingest", tags=["ingestion"])
 
 @router.post("/sources/{source_id}", status_code=status.HTTP_202_ACCEPTED)
 def ingest(source_id: str, body: IncomingEvent, authorization: str | None = Header(default=None), db=Depends(get_db)):
+    # This legacy endpoint is for SQLite fixtures. PostgreSQL FORCE RLS
+    # cannot look up source credentials without a tenant transaction context.
+    if db.bind.dialect.name == "postgresql":
+        raise HTTPException(status_code=503, detail="Use tenant-scoped ingestion")
+    return _ingest_event(source_id, body, authorization, db)
+
+
+@router.post("/tenants/{tenant_id}/sources/{source_id}",
+             status_code=status.HTTP_202_ACCEPTED)
+def ingest_tenant(tenant_id: str, source_id: str, body: IncomingEvent,
+                  authorization: str | None = Header(default=None),
+                  db=Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer ") or not authorization[7:]:
+        raise HTTPException(status_code=401, detail="Invalid source credentials")
+    try:
+        tenant_id = str(UUID(tenant_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Source not found") from None
+    if db.bind.dialect.name == "postgresql":
+        set_tenant(db, tenant_id)
+    return _ingest_event(source_id, body, authorization, db,
+                         expected_tenant=tenant_id)
+
+
+def _ingest_event(source_id, body, authorization, db, expected_tenant=None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid source credentials")
     token = authorization[7:]
     if not token:
         raise HTTPException(status_code=401, detail="Invalid source credentials")
     source = db.get(Source, source_id)
-    if source is None or not source.enabled or not hmac.compare_digest(source.token_hash, token_digest(token)):
+    if (source is None or not source.enabled
+            or (expected_tenant is not None and source.tenant_id != expected_tenant)
+            or not hmac.compare_digest(source.token_hash, token_digest(token))):
         raise HTTPException(status_code=401, detail="Invalid source credentials")
     existing = db.scalar(select(RawEvent).where(RawEvent.source_id == source.id, RawEvent.external_id == body.external_id))
     if existing:
