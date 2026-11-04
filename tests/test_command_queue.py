@@ -84,3 +84,22 @@ def test_recovery_maximum_supported_age(tmp_path):
         assert queue.recover_unacknowledged(
             "agent-a", now=now + timedelta(days=1),
             min_age_seconds=86400) == [item["command_id"]]
+
+
+def test_tenant_dashboard_exposes_only_enrolled_agent_metadata(tmp_path):
+    tenant_a, tenant_b = str(uuid4()), str(uuid4())
+    agent_a, agent_b = str(uuid4()), str(uuid4())
+    own, other = envelope(), envelope()
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enroll_agent(agent_a, tenant_a)
+        queue.enroll_agent(agent_b, tenant_b)
+        queue.enqueue(agent_a, own)
+        queue.enqueue(agent_b, other)
+        report = queue.tenant_overview(tenant_a)
+        assert report["agents_enrolled"] == 1
+        assert report["status_counts"]["PENDING"] == 1
+        assert report["recent"][0]["command_id"] == own["command_id"]
+        assert other["command_id"] not in str(report)
+        assert "payload" not in str(report)
+        assert "signature" not in str(report)
+        assert queue.tenant_overview(str(uuid4()))["recent"] == []
