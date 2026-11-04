@@ -1,5 +1,5 @@
-from app.agent_identity import AgentIdentity
 """Full local-development cloud queue -> HTTPS client -> journal -> ACK test."""
+from app.agent_identity import AgentIdentity
 import hashlib
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -236,3 +236,45 @@ def test_reconciled_recovery_requires_cloud_uncertainty_history(monkeypatch, tmp
     with CommandQueue(queue_path) as queue:
         assert queue.reported_state(AGENT_ID, command_id) == "RECONCILED"
         assert queue.status(command_id) == "ACKNOWLEDGED"
+
+
+def test_lost_ack_response_can_be_recovered_without_replaying(monkeypatch, tmp_path):
+    queue_path = str(tmp_path / "cloud.sqlite")
+    monkeypatch.setenv("DEMO_COMMAND_QUEUE_PATH", queue_path)
+    monkeypatch.setenv("DEMO_AGENT_ID", AGENT_ID)
+    monkeypatch.setenv("DEMO_AGENT_TOKEN_SHA256", hashlib.sha256(b"token").hexdigest())
+    command_id = str(uuid4())
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    with CommandQueue(queue_path) as queue:
+        queue.enqueue(AGENT_ID, {
+            "command_id": command_id, "expires_at": expiry,
+            "payload": {}, "signature": "a" * 64})
+        queue.next_for_agent(AGENT_ID)
+    app = FastAPI()
+    app.include_router(router)
+    lost = [False]
+    with TestClient(app) as server:
+        def handler(request):
+            response = server.request(
+                request.method, request.url.path,
+                headers=dict(request.headers), content=request.content,
+                follow_redirects=False)
+            if request.method == "POST" and request.url.path.endswith("/ack") and not lost[0]:
+                lost[0] = True
+                raise httpx.ReadError("ACK committed but response was lost")
+            return httpx.Response(response.status_code,
+                                  headers=dict(response.headers),
+                                  content=response.content)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with CommandJournal(str(tmp_path / "agent.sqlite")) as journal:
+                journal.receive(command_id, {"test": True})
+                journal.reject(command_id, "PREFLIGHT_FAILED")
+                args = dict(endpoint="https://agent.example.com", agent_token="token",
+                            journal=journal, command_id=command_id, client=client)
+                with pytest.raises(httpx.ReadError):
+                    recover_terminal_receipt(**args)
+                assert recover_terminal_receipt(**args) == {
+                    "status": "ACKNOWLEDGED", "execution_enabled": False}
+    with CommandQueue(queue_path) as queue:
+        assert queue.status(command_id) == "ACKNOWLEDGED"
+        assert queue.reported_state(AGENT_ID, command_id) == "REJECTED"
