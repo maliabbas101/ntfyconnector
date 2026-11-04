@@ -25,3 +25,6 @@ app.include_router(ingestion_router)
 
 from app.agent_api import router as agent_router
 app.include_router(agent_router)
+
+from app.tenant_command_api import router as tenant_command_router
+app.include_router(tenant_command_router)
