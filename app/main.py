@@ -28,3 +28,7 @@ app.include_router(agent_router)
 
 from app.tenant_command_api import router as tenant_command_router
 app.include_router(tenant_command_router)
+
+
+from app.dev_console import router as dev_console_router
+app.include_router(dev_console_router)
