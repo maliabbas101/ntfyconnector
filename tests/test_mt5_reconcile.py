@@ -11,6 +11,9 @@ from app.mt5_reconcile import (ReconciliationUnavailable, inspect_uncertain_demo
 
 class FakeDemo:
     ACCOUNT_TRADE_MODE_DEMO = 0
+    DEAL_TYPE_BUY = 0
+    DEAL_TYPE_SELL = 1
+    DEAL_ENTRY_IN = 0
 
     def __init__(self, *, live=False, history=None):
         self.live = live
@@ -37,7 +40,7 @@ class FakeDemo:
 def journal_uncertain(journal, cid):
     journal.receive(cid, {
         "command_id": cid, "expected_login": 123, "expected_server": "Demo",
-        "signal": {"symbol": "XAUUSD"}})
+        "signal": {"symbol": "XAUUSD", "side": "BUY"}})
     journal.mark_execution_unknown(cid)
 
 
@@ -46,11 +49,14 @@ def test_matching_deal_is_candidate_only(tmp_path):
     comment = "ntfy-" + cid.replace("-", "")[:24]
     mt5 = FakeDemo(history=[
         SimpleNamespace(ticket=12345, order=54321,
-                        symbol="XAUUSD", comment=comment),
+                        symbol="XAUUSD", comment=comment,
+                        type=0, entry=0, volume=0.1),
         SimpleNamespace(ticket=999, order=888,
-                        symbol="EURUSD", comment=comment),
+                        symbol="EURUSD", comment=comment,
+                        type=0, entry=0, volume=0.1),
         SimpleNamespace(ticket=777, order=666,
-                        symbol="XAUUSD", comment="unrelated"),
+                        symbol="XAUUSD", comment="unrelated",
+                        type=0, entry=0, volume=0.1),
     ])
     with CommandJournal(str(tmp_path / "journal.db")) as journal:
         journal_uncertain(journal, cid)
@@ -102,7 +108,8 @@ def test_confirmed_matching_deal_reconciles_only_after_operator_action(tmp_path)
     comment = "ntfy-" + cid.replace("-", "")[:24]
     mt5 = FakeDemo(history=[
         SimpleNamespace(ticket=9876, order=8888,
-                        symbol="XAUUSD", comment=comment)])
+                        symbol="XAUUSD", comment=comment,
+                        type=0, entry=0, volume=0.1)])
     with CommandJournal(str(tmp_path / "journal.db")) as journal:
         journal_uncertain(journal, cid)
         kwargs = dict(mt5=mt5, journal=journal, command_id=cid,
@@ -130,4 +137,23 @@ def test_confirm_demo_deal_never_accepts_unmatched_or_missing_history(tmp_path):
                 FakeDemo(history=[]), journal, cid, deal_ticket=111,
                 expected_login=123, expected_server="Demo",
                 operator_confirmed=True)
+        assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
+
+
+def test_opposite_direction_and_close_deals_are_not_candidates(tmp_path):
+    cid = str(uuid4())
+    comment = "ntfy-" + cid.replace("-", "")[:24]
+    mt5 = FakeDemo(history=[
+        SimpleNamespace(ticket=10, order=11, symbol="XAUUSD",
+                        comment=comment, type=1, entry=0, volume=0.1),
+        SimpleNamespace(ticket=20, order=21, symbol="XAUUSD",
+                        comment=comment, type=0, entry=1, volume=0.1),
+        SimpleNamespace(ticket=30, order=31, symbol="XAUUSD",
+                        comment=comment, type=0, entry=0, volume=0),
+    ])
+    with CommandJournal(str(tmp_path / "journal.db")) as journal:
+        journal_uncertain(journal, cid)
+        result = inspect_uncertain_demo_order(
+            mt5, journal, cid, expected_login=123, expected_server="Demo")
+        assert result["candidate_deals"] == []
         assert journal.get(cid)["state"] == "EXECUTION_UNKNOWN"
