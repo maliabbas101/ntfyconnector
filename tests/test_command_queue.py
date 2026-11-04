@@ -38,3 +38,31 @@ def test_expired_command_never_delivered(tmp_path):
         queue.enqueue("a", item)
         assert queue.next_for_agent("a", now=NOW) is None
         assert queue.status(item["command_id"]) == "EXPIRED"
+
+
+def test_expiry_boundary_is_exact_to_microsecond(tmp_path):
+    cutoff = datetime(2026, 1, 1, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    expiring = envelope(expires=cutoff)
+    future = envelope(expires=cutoff + timedelta(microseconds=1))
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enqueue("agent-a", expiring)
+        queue.enqueue("agent-a", future)
+        assert queue.next_for_agent("agent-a", now=cutoff) == future
+        assert queue.status(expiring["command_id"]) == "EXPIRED"
+        assert queue.status(future["command_id"]) == "DELIVERED"
+        assert queue.next_for_agent("agent-a", now=cutoff) is None
+
+
+def test_recovery_age_boundary_is_exact_to_microsecond(tmp_path):
+    delivered_at = datetime(2026, 1, 1, 12, 0, 0, 123456,
+                            tzinfo=timezone.utc)
+    item = envelope(expires=delivered_at + timedelta(minutes=5))
+    with CommandQueue(str(tmp_path / "queue.db")) as queue:
+        queue.enqueue("agent-a", item)
+        assert queue.next_for_agent("agent-a", now=delivered_at) == item
+        assert queue.recover_unacknowledged(
+            "agent-a", now=delivered_at + timedelta(seconds=60)
+            - timedelta(microseconds=1), min_age_seconds=60) == []
+        assert queue.recover_unacknowledged(
+            "agent-a", now=delivered_at + timedelta(seconds=60),
+            min_age_seconds=60) == [item["command_id"]]
